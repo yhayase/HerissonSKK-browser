@@ -1,0 +1,31 @@
+{
+  "name": "skk-browser-extension",
+  "description": "SKK Input Method Extension for browsers and VS Code for Web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "compile": "tsc --noEmit",
+    "test": "npm run build && xvfb-run -a node test/poc-verify.mjs",
+    "postinstall": "wxt prepare"
+  },
+  "devDependencies": {
+    "@types/textarea-caret": "^3.0.4",
+    "@types/wanakana": "^4.0.6",
+    "puppeteer-core": "^25.10.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.5",
+    "web-ext": "^10.5.0",
+    "wxt": "^0.21.3"
+  },
+  "dependencies": {
+    "textarea-caret": "^3.1.0",
+    "wanakana": "^5.3.1"
+  }
+}

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>SKK Extension PoC Verification Page</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 24px;
+      background: #f4f5f7;
+      color: #172b4d;
+    }
+    h1 {
+      margin-bottom: 8px;
+    }
+    .instructions {
+      background: #e9f2ff;
+      border: 1px solid #b3d4ff;
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+    }
+    .section {
+      background: white;
+      border: 1px solid #dfe1e6;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    input[type="text"], textarea {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #c1c7d0;
+      border-radius: 4px;
+      font-size: 15px;
+      box-sizing: border-box;
+    }
+    .editable-box {
+      border: 1px solid #c1c7d0;
+      border-radius: 4px;
+      padding: 8px 12px;
+      min-height: 60px;
+      background: #fafbfc;
+      font-size: 15px;
+    }
+    #monaco-container {
+      width: 100%;
+      height: 200px;
+      border: 1px solid #c1c7d0;
+      border-radius: 4px;
+    }
+    #log {
+      font-family: monospace;
+      font-size: 12px;
+      background: #091e420f;
+      padding: 8px;
+      border-radius: 4px;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+  </style>
+  <!-- Monaco Editor loader -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js"></script>
+</head>
+<body>
+  <h1>SKK Browser Extension - PoC Verification</h1>
+  <div class="instructions">
+    <strong>操作手順:</strong><br>
+    1. 各入力欄をクリックしてフォーカス。<br>
+    2. <code>Ctrl+j</code> を押して SKK かなモードに切り替え（カーソル直下に [かな] HUD が表示されます）。<br>
+    3. <code>nihon</code> と入力 ➔ <code>にほん</code> が確定。<br>
+    4. 漢字変換テスト: <code>Nihon</code>（大文字N）と入力 ➔ <code>▽にほん</code> ➔ <code>Space</code> で <code>▼日本</code> ➔ <code>Enter</code> で確定挿入！<br>
+    5. 再度 <code>Ctrl+j</code> または <code>l</code> で直接入力（ASCII）に戻ります。
+  </div>
+
+  <div class="section">
+    <label for="input-test">1. 標準 &lt;input&gt;</label>
+    <input type="text" id="input-test" placeholder="Type here...">
+  </div>
+
+  <div class="section">
+    <label for="textarea-test">2. 標準 &lt;textarea&gt;</label>
+    <textarea id="textarea-test" rows="3" placeholder="Type multi-line text here..."></textarea>
+  </div>
+
+  <div class="section">
+    <label for="contenteditable-test">3. リッチテキスト &lt;div contenteditable="true"&gt;</label>
+    <div id="contenteditable-test" class="editable-box" contenteditable="true">Editable content here...</div>
+  </div>
+
+  <div class="section">
+    <label>4. Monaco Editor (VS Code for Web のコアエディタ)</label>
+    <div id="monaco-container"></div>
+  </div>
+
+  <div class="section">
+    <label>リアルタイム入力イベントログ</label>
+    <div id="log">Ready. Focus an element and type...</div>
+  </div>
+
+  <script>
+    const logEl = document.getElementById('log');
+    function log(msg) {
+      logEl.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}<br>` + logEl.innerHTML;
+    }
+
+    ['input-test', 'textarea-test', 'contenteditable-test'].forEach(id => {
+      const el = document.getElementById(id);
+      el.addEventListener('input', (e) => {
+        log(`InputEvent on #${id}: value="${el.value ?? el.textContent}"`);
+      });
+    });
+
+    // Initialize Monaco Editor
+    if (window.require) {
+      require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs' }});
+      require(['vs/editor/editor.main'], function() {
+        window.monacoEditor = monaco.editor.create(document.getElementById('monaco-container'), {
+          value: '// Monaco Editor instance for SKK verification\nfunction hello() {\n  console.log("Hello, SKK!");\n}\n',
+          language: 'javascript',
+          theme: 'vs-light',
+          minimap: { enabled: false }
+        });
+        window.monacoEditor.onDidChangeModelContent((e) => {
+          log(`Monaco onDidChangeModelContent: changes=${JSON.stringify(e.changes.map(c => c.text))}`);
+        });
+        log('Monaco Editor loaded successfully.');
+      });
+    }
+  </script>
+</body>
+</html>
