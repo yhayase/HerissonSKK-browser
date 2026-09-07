@@ -102,6 +102,7 @@ export class SkkContentEngine {
   public enqueueKeyAction(action: () => Promise<void>): Promise<void> {
     this.keyQueue = this.keyQueue
       .then(async () => {
+        await this.isInitializedPromise;
         await action();
       })
       .catch((err) => {
