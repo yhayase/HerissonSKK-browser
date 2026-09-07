@@ -233,7 +233,7 @@ describe("SkkContentEngine verified findings", () => {
       expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(HiraganaMode);
     });
 
-    it("switches from HiraganaMode to AsciiMode when idle", async () => {
+    it("maintains HiraganaMode when idle upon pressing Ctrl+J", async () => {
       engine.adapter.setInputMode(HiraganaMode.getInstance());
       const event = {
         isComposing: false,
@@ -249,7 +249,8 @@ describe("SkkContentEngine verified findings", () => {
       } as any;
 
       await engine.handleKeyDown(event);
-      expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(AsciiMode);
+      expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(HiraganaMode);
+      expect(engine.hud.getVisible()).toBe(true);
     });
 
     it("calls ctrlJInput() in HiraganaMode when composition/midashigo is active", async () => {
@@ -533,7 +534,7 @@ describe("SkkContentEngine verified findings", () => {
       expect(engine.hud.getVisible()).toBe(false);
     });
 
-    it("automatically hides HUD when pressing Ctrl+J to toggle to AsciiMode while idle", async () => {
+    it("maintains HUD visible when pressing Ctrl+J while idle in HiraganaMode", async () => {
       engine.adapter.setInputMode(HiraganaMode.getInstance());
       expect(engine.hud.getVisible()).toBe(true);
 
@@ -551,8 +552,8 @@ describe("SkkContentEngine verified findings", () => {
       } as any;
 
       await engine.handleKeyDown(event);
-      expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(AsciiMode);
-      expect(engine.hud.getVisible()).toBe(false);
+      expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(HiraganaMode);
+      expect(engine.hud.getVisible()).toBe(true);
     });
   });
 });
