@@ -16,12 +16,16 @@ export class FloatingHUD {
   private candidateEl: HTMLSpanElement | null = null;
   private statusEl: HTMLSpanElement | null = null;
   private isVisible: boolean = false;
+  private lastState: HUDState | null = null;
 
   constructor() {
     this.init();
   }
 
   private init() {
+    if (typeof document === 'undefined') {
+      return;
+    }
     if (document.getElementById('skk-browser-ext-hud-root')) {
       return;
     }
@@ -141,6 +145,11 @@ export class FloatingHUD {
   }
 
   public update(state: HUDState) {
+    this.lastState = { ...state };
+    if (typeof document === 'undefined' || typeof window === 'undefined') {
+      this.isVisible = true;
+      return;
+    }
     if (!this.container || !this.badgeEl || !this.preeditEl || !this.candidateEl || !this.statusEl) {
       this.init();
     }
@@ -180,5 +189,9 @@ export class FloatingHUD {
 
   public getVisible(): boolean {
     return this.isVisible;
+  }
+
+  public getState(): HUDState | null {
+    return this.lastState;
   }
 }
