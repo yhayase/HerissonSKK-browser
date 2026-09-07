@@ -387,15 +387,6 @@ export class BrowserEditorAdapter implements IEditor {
         this.registrationOkuri = okuri;
         this.lastStatus = `[辞書登録: ${yomi}]`;
 
-        // Clear midashigo and candidate state from browser editor
-        this.inMidashigo = false;
-        this.midashigoText = "";
-        this.remainingRomaji = "";
-        this.isOkuri = false;
-        this.currentCandidate = undefined;
-        this.currentOkuri = "";
-        this.currentSuffix = "";
-
         const prevMode = this.currentInputMode;
         const parentReg = prevMode instanceof RegistrationMode ? prevMode : undefined;
         const regMode = new RegistrationMode(yomi, okuri, this, prevMode, parentReg);

@@ -5,6 +5,8 @@ import type { IInputMode } from "../IInputMode";
 import { AbstractKanaMode } from "../AbstractKanaMode";
 import { HiraganaMode } from "../HiraganaMode";
 import { KakuteiMode } from "./KakuteiMode";
+import { InlineHenkanMode } from "./InlineHenkanMode";
+import { MenuHenkanMode } from "./MenuHenkanMode";
 import { Candidate } from "../../jisyo/candidate";
 import type { IJisyoProvider } from "../../jisyo/IJisyoProvider";
 import * as wanakana from "wanakana";
@@ -370,7 +372,8 @@ export class RegistrationMode extends AbstractInputMode implements IInputMode {
 
     public getPromptHeader(): string {
         if (this.okuri && this.okuri.length > 0) {
-            return `[${this.yomi}*${this.okuri}] `;
+            const stem = this.yomi.replace(/[a-z]+$/, "");
+            return `[${stem}*${this.okuri}] `;
         }
         return `[${this.yomi}] `;
     }
@@ -413,15 +416,70 @@ export class RegistrationMode extends AbstractInputMode implements IInputMode {
     }
 
     public async enterInput(): Promise<void> {
-        await this.handleConfirmOrForward();
+        // If candidate is active or in midashigo, fixate it first into mini-buffer
+        if (this.miniBufferEditor.getCurrentCandidate() !== undefined || this.miniBufferEditor.isInMidashigo()) {
+            await this.internalMode.ctrlJInput();
+            return;
+        }
+
+        // Flush any trailing romaji (e.g. "n" -> "ん")
+        if (this.miniBufferEditor.getRemainingRomaji().length > 0) {
+            const rem = this.miniBufferEditor.getRemainingRomaji();
+            const kana = wanakana.toKana(rem);
+            if (this.internalMode instanceof AbstractKanaMode) {
+                await this.internalMode.reset();
+            }
+            if (kana && kana !== rem) {
+                await this.miniBufferEditor.insertOrReplaceSelection(kana);
+            }
+            this.miniBufferEditor.showRemainingRomaji("", false, 0);
+        }
+
+        if (this.miniBufferEditor.getCommittedText().length === 0) {
+            await this.abortRegistration();
+            return;
+        }
+
+        await this.confirmRegistration();
+    }
+
+    public async abortRegistration(): Promise<void> {
+        if (this.parentRegistration) {
+            this.outerEditor.setInputMode(this.parentRegistration);
+            await this.outerEditor.notifyModeInternalStateChanged();
+            return;
+        }
+
+        let targetInputMode = this.previousMode;
+        let inlineHenkan: InlineHenkanMode | undefined = undefined;
+        let menuHenkan: MenuHenkanMode | undefined = undefined;
+
+        if (this.previousMode instanceof AbstractKanaMode) {
+            const hm = this.previousMode.getHenkanMode();
+            if (hm instanceof InlineHenkanMode) {
+                inlineHenkan = hm;
+            } else if (hm instanceof MenuHenkanMode) {
+                menuHenkan = hm;
+            }
+        } else if ((this.previousMode as any) instanceof InlineHenkanMode) {
+            inlineHenkan = this.previousMode as any;
+        } else if ((this.previousMode as any) instanceof MenuHenkanMode) {
+            menuHenkan = this.previousMode as any;
+        }
+
+        this.outerEditor.setInputMode(targetInputMode);
+
+        if (inlineHenkan && targetInputMode instanceof AbstractKanaMode) {
+            await inlineHenkan.showCandidate(targetInputMode);
+        } else if (menuHenkan && targetInputMode instanceof AbstractKanaMode) {
+            menuHenkan.showCandidateList(targetInputMode);
+        }
+
+        await this.outerEditor.notifyModeInternalStateChanged();
     }
 
     public async ctrlJInput(): Promise<void> {
-        await this.handleConfirmOrForward();
-    }
-
-    private async handleConfirmOrForward(): Promise<void> {
-        // If candidate is active or in midashigo, fixate it first into mini-buffer
+        // If candidate is active or in midashigo, fixate it into mini-buffer
         if (this.miniBufferEditor.getCurrentCandidate() !== undefined || this.miniBufferEditor.isInMidashigo()) {
             await this.internalMode.ctrlJInput();
             return;
@@ -431,14 +489,17 @@ export class RegistrationMode extends AbstractInputMode implements IInputMode {
         if (this.miniBufferEditor.getRemainingRomaji().length > 0) {
             const rem = this.miniBufferEditor.getRemainingRomaji();
             const kana = wanakana.toKana(rem);
+            if (this.internalMode instanceof AbstractKanaMode) {
+                await this.internalMode.reset();
+            }
             if (kana && kana !== rem) {
                 await this.miniBufferEditor.insertOrReplaceSelection(kana);
             }
             this.miniBufferEditor.showRemainingRomaji("", false, 0);
+            return;
         }
 
-        // Confirm registration
-        await this.confirmRegistration();
+        // Else: NO-OP! Do nothing.
     }
 
     public async backspaceInput(): Promise<void> {
@@ -458,12 +519,15 @@ export class RegistrationMode extends AbstractInputMode implements IInputMode {
             await this.miniBufferEditor.deleteLeft();
             return;
         }
-        // Buffer is empty: cancel registration!
-        await this.cancelRegistration();
+        // Buffer is empty: NO-OP! Do NOT exit or pop registration.
     }
 
     public async ctrlGInput(): Promise<void> {
-        if (this.miniBufferEditor.getCurrentCandidate() !== undefined || this.miniBufferEditor.isInMidashigo()) {
+        if (
+            this.miniBufferEditor.getCurrentCandidate() !== undefined ||
+            this.miniBufferEditor.isInMidashigo() ||
+            this.miniBufferEditor.getRemainingRomaji().length > 0
+        ) {
             await this.internalMode.ctrlGInput();
             return;
         }
@@ -499,8 +563,16 @@ export class RegistrationMode extends AbstractInputMode implements IInputMode {
 
         if (this.parentRegistration) {
             // Nested: pop stack to parent registration and insert word into parent mini-buffer
+            const parentMb = this.parentRegistration.getMiniBufferEditor();
+            if (parentMb.isInMidashigo()) {
+                await parentMb.clearMidashigo();
+            }
+            if (this.parentRegistration.getInternalMode() instanceof AbstractKanaMode) {
+                const parentKana = this.parentRegistration.getInternalMode() as AbstractKanaMode;
+                parentKana.setHenkanMode(KakuteiMode.create(parentKana, parentMb));
+            }
             this.outerEditor.setInputMode(this.parentRegistration);
-            await this.parentRegistration.getMiniBufferEditor().insertOrReplaceSelection(textToInsert);
+            await parentMb.insertOrReplaceSelection(textToInsert);
             await this.outerEditor.notifyModeInternalStateChanged();
         } else {
             // Root: restore previous mode and commit candidate to outerEditor
@@ -509,6 +581,8 @@ export class RegistrationMode extends AbstractInputMode implements IInputMode {
                 await this.previousMode.reset();
             }
             this.outerEditor.setInputMode(this.previousMode);
+            await this.outerEditor.clearMidashigo();
+            await this.outerEditor.clearCandidate();
             await this.outerEditor.insertOrReplaceSelection(textToInsert);
             await this.outerEditor.notifyModeInternalStateChanged();
         }

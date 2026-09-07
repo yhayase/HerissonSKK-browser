@@ -111,7 +111,7 @@ describe("RegistrationMode (Inline & Recursive Registration)", () => {
             const regMode = new RegistrationMode("いk", "く", adapter);
             expect(regMode.getYomi()).toBe("いk");
             expect(regMode.getOkuri()).toBe("く");
-            expect(regMode.getPromptHeader()).toBe("[いk*く] ");
+            expect(regMode.getPromptHeader()).toBe("[い*く] ");
         });
 
         it("allows typing hiragana into mini-buffer and confirms registration (Okuri-nasi)", async () => {
@@ -147,7 +147,7 @@ describe("RegistrationMode (Inline & Recursive Registration)", () => {
             expect(adapter.getModeBadgeText()).toBe("かな");
         });
 
-        it("confirms registration with Ctrl+J", async () => {
+        it("pressing Ctrl+J on committed text is a no-op and stays in RegistrationMode", async () => {
             await adapter.openRegistrationEditor("めも", "");
             const regMode = adapter.getCurrentInputMode() as RegistrationMode;
 
@@ -159,10 +159,11 @@ describe("RegistrationMode (Inline & Recursive Registration)", () => {
 
             await regMode.ctrlJInput();
 
+            expect(adapter.getCurrentInputMode()).toBe(regMode);
+            expect(regMode.getMiniBufferEditor().getCommittedText()).toBe("めも");
+            expect(mockElement.value).toBe("");
             const entry = await jisyoProvider.lookupCandidates("めも");
-            expect(entry).toBeDefined();
-            expect(entry?.getCandidateList()[0]?.word).toBe("めも");
-            expect(mockElement.value).toBe("めも");
+            expect(entry).toBeUndefined();
         });
 
         it("flushes trailing romaji like 'n' into 'ん' on Enter confirmation", async () => {
@@ -219,7 +220,7 @@ describe("RegistrationMode (Inline & Recursive Registration)", () => {
             expect(adapter.getCurrentInputMode()).toBeInstanceOf(HiraganaMode);
         });
 
-        it("deletes character on backspace, and cancels when buffer becomes empty", async () => {
+        it("deletes character on backspace, and backspace on empty buffer is a no-op", async () => {
             await adapter.openRegistrationEditor("てすと", "");
             const regMode = adapter.getCurrentInputMode() as RegistrationMode;
 
@@ -232,9 +233,9 @@ describe("RegistrationMode (Inline & Recursive Registration)", () => {
             // Still in registration mode
             expect(adapter.getCurrentInputMode()).toBe(regMode);
 
-            // Backspace on empty buffer cancels registration
+            // Backspace on empty buffer is a no-op (stays in registration mode)
             await regMode.backspaceInput();
-            expect(adapter.getCurrentInputMode()).toBeInstanceOf(HiraganaMode);
+            expect(adapter.getCurrentInputMode()).toBe(regMode);
             expect(mockElement.value).toBe("");
         });
     });
@@ -284,7 +285,7 @@ describe("RegistrationMode (Inline & Recursive Registration)", () => {
             // Unregistered okuri-ari key "はたらk" with okuri "く"
             await adapter.openRegistrationEditor("はたらk", "く");
             const regMode = adapter.getCurrentInputMode() as RegistrationMode;
-            expect(regMode.getPromptHeader()).toBe("[はたらk*く] ");
+            expect(regMode.getPromptHeader()).toBe("[はたら*く] ");
 
             // User inputs stem "働" (we insert via direct selection or midashigo)
             await regMode.getMiniBufferEditor().insertOrReplaceSelection("働");
@@ -409,18 +410,19 @@ describe("RegistrationMode (Inline & Recursive Registration)", () => {
             expect(rootReg.getMiniBufferEditor().getCommittedText()).toBe("親");
         });
 
-        it("backspace on empty nested buffer cancels nested registration", async () => {
+        it("backspace on empty nested buffer is a no-op and stays in nested registration", async () => {
             await adapter.openRegistrationEditor("おや２", "");
             const rootReg = adapter.getCurrentInputMode() as RegistrationMode;
 
             await rootReg.getMiniBufferEditor().openRegistrationEditor("こ２", "");
             const nestedReg = adapter.getCurrentInputMode() as RegistrationMode;
 
-            // Backspace immediately on empty nested buffer
+            // Backspace immediately on empty nested buffer is a no-op
             await nestedReg.backspaceInput();
 
-            // Popped back to root registration
-            expect(adapter.getCurrentInputMode()).toBe(rootReg);
+            // Stays in nested registration
+            expect(adapter.getCurrentInputMode()).toBe(nestedReg);
+            expect(nestedReg.isNested()).toBe(true);
         });
     });
 
