@@ -25,10 +25,11 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
-server.listen(3456, '127.0.0.1', async () => {
-  console.log('[Test Server] Serving on http://127.0.0.1:3456/test.html');
+server.listen(0, '127.0.0.1', async () => {
+  const port = server.address().port;
+  console.log(`[Test Server] Serving on http://127.0.0.1:${port}/test.html`);
   try {
-    await runVerification();
+    await runVerification(port);
   } catch (err) {
     console.error('[Test Failed with Error]:', err);
     process.exitCode = 1;
@@ -37,11 +38,11 @@ server.listen(3456, '127.0.0.1', async () => {
   }
 });
 
-async function runVerification() {
+async function runVerification(port) {
   console.log('[Puppeteer] Launching Chrome for Testing in HEADLESS mode...');
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
-    headless: true, // Completely headless
+    headless: true,
     enableExtensions: true,
     args: [
       `--disable-extensions-except=${EXT_PATH}`,
@@ -59,41 +60,43 @@ async function runVerification() {
       console.log('  [Browser Console]:', msg.text());
     }
   });
+  page.on('pageerror', (err) => {
+    console.log('  [Browser PageError]:', err);
+  });
 
-  console.log('[Puppeteer] Navigating to http://127.0.0.1:3456/test.html');
-  await page.goto('http://127.0.0.1:3456/test.html', { waitUntil: 'networkidle0' });
+  console.log(`[Puppeteer] Navigating to http://127.0.0.1:${port}/test.html`);
+  await page.goto(`http://127.0.0.1:${port}/test.html`, { waitUntil: 'networkidle0' });
 
   // Wait for content script to inject HUD element
   console.log('[Check 1] Waiting for SKK HUD host element in DOM...');
   const hudHost = await page.waitForSelector('#skk-browser-ext-hud-root', { timeout: 5000 });
   console.log(`[Check 1] Content script HUD injected: ${!!hudHost}`);
 
+
   // --- Test 1: Standard <input> ---
+  // Ctrl+j -> type Nihon -> Space -> 日本 -> Enter (verify value: '日本')
   console.log('\n--- Testing Standard <input> ---');
   await page.focus('#input-test');
+  await page.$eval('#input-test', (el) => (el.value = ''));
+
   // Toggle SKK mode: Ctrl+j
   await page.keyboard.down('Control');
   await page.keyboard.press('KeyJ');
   await page.keyboard.up('Control');
 
-  // Check HUD visibility
+  // Check HUD visibility & mode
   let hudInfo = await page.evaluate(() => {
     const host = document.getElementById('skk-browser-ext-hud-root');
     const box = host?.shadowRoot?.querySelector('.skk-hud-box');
     const badge = host?.shadowRoot?.querySelector('.skk-mode-badge')?.textContent;
     return {
-      badge: badge,
+      badge,
       hidden: box?.classList.contains('skk-hidden'),
     };
   });
   console.log(`[Input] HUD after Ctrl+j:`, hudInfo);
 
-  // Type: nihon -> should directly convert to kana 'にほん'
-  await page.keyboard.type('nihon');
-  let inputValue = await page.$eval('#input-test', (el) => el.value);
-  console.log(`[Input] Value after typing 'nihon': "${inputValue}"`);
-
-  // Type: Nihon (uppercase N) -> Space -> Enter -> Kanji '日本'
+  // Type: Nihon (uppercase N to enter MidashigoMode, ihon for にほん)
   await page.keyboard.down('Shift');
   await page.keyboard.press('KeyN');
   await page.keyboard.up('Shift');
@@ -105,7 +108,7 @@ async function runVerification() {
   });
   console.log(`[Input] Preedit text in HUD: "${preedit}"`);
 
-  // Space to convert
+  // Space to convert -> 日本
   await page.keyboard.press('Space');
   let candidate = await page.evaluate(() => {
     const host = document.getElementById('skk-browser-ext-hud-root');
@@ -115,7 +118,7 @@ async function runVerification() {
 
   // Enter to commit
   await page.keyboard.press('Enter');
-  inputValue = await page.$eval('#input-test', (el) => el.value);
+  const inputValue = await page.$eval('#input-test', (el) => el.value);
   console.log(`[Input] Final value after commit: "${inputValue}"`);
 
   // Toggle back to ASCII
@@ -124,24 +127,33 @@ async function runVerification() {
   await page.keyboard.up('Control');
 
   // --- Test 2: Standard <textarea> ---
-  console.log('\n--- Testing Standard <textarea> ---');
+  // Ctrl+j -> type Ik (okuri-ari) -> Space -> 行く -> Enter (verify value: '行く')
+  console.log('\n--- Testing Standard <textarea> (okuri-ari) ---');
   await page.focus('#textarea-test');
+  await page.$eval('#textarea-test', (el) => (el.value = ''));
+
   await page.keyboard.down('Control');
   await page.keyboard.press('KeyJ');
   await page.keyboard.up('Control');
 
-  await page.keyboard.type('toukyou');
-  let taValue = await page.$eval('#textarea-test', (el) => el.value);
-  console.log(`[Textarea] Value after typing 'toukyou': "${taValue}"`);
-
-  // Convert: Toukyou -> Space -> Enter
+  // Type okuri-ari 'Ik': uppercase I (gokan: い), uppercase K (okuri: k), lower u (completes く -> 行く)
   await page.keyboard.down('Shift');
-  await page.keyboard.press('KeyT');
+  await page.keyboard.press('KeyI');
+  await page.keyboard.press('KeyK');
   await page.keyboard.up('Shift');
-  await page.keyboard.type('oukyou');
+  await page.keyboard.type('u');
+
+  candidate = await page.evaluate(() => {
+    const host = document.getElementById('skk-browser-ext-hud-root');
+    return host?.shadowRoot?.querySelector('.skk-candidate')?.textContent;
+  });
+  console.log(`[Textarea] Candidate in HUD for okuri-ari 'Ik': "${candidate}"`);
+
+  // Space & Enter to commit candidate
   await page.keyboard.press('Space');
   await page.keyboard.press('Enter');
-  taValue = await page.$eval('#textarea-test', (el) => el.value);
+
+  const taValue = await page.$eval('#textarea-test', (el) => el.value);
   console.log(`[Textarea] Final value: "${taValue}"`);
 
   await page.keyboard.down('Control');
@@ -149,36 +161,67 @@ async function runVerification() {
   await page.keyboard.up('Control');
 
   // --- Test 3: ContentEditable ---
-  console.log('\n--- Testing ContentEditable ---');
+  // Ctrl+j -> type q (Katakana mode) -> type kanji -> Space -> 漢字
+  console.log('\n--- Testing ContentEditable (Katakana mode) ---');
   await page.focus('#contenteditable-test');
   await page.evaluate(() => {
     const el = document.getElementById('contenteditable-test');
     el.textContent = '';
   });
+
   await page.keyboard.down('Control');
   await page.keyboard.press('KeyJ');
   await page.keyboard.up('Control');
 
+  // 'q' switches to Katakana mode
+  await page.keyboard.press('KeyQ');
+
+  const katakanaBadge = await page.evaluate(() => {
+    const host = document.getElementById('skk-browser-ext-hud-root');
+    return host?.shadowRoot?.querySelector('.skk-mode-badge')?.textContent;
+  });
+  console.log(`[ContentEditable] HUD mode badge after 'q': "${katakanaBadge}"`);
+
+  // Convert 'Kanji' -> '漢字' in Katakana mode
   await page.keyboard.down('Shift');
   await page.keyboard.press('KeyK');
   await page.keyboard.up('Shift');
   await page.keyboard.type('anji');
+
+  preedit = await page.evaluate(() => {
+    const host = document.getElementById('skk-browser-ext-hud-root');
+    return host?.shadowRoot?.querySelector('.skk-preedit')?.textContent;
+  });
+  console.log(`[ContentEditable] Preedit in HUD: "${preedit}"`);
+
   await page.keyboard.press('Space');
+
+  candidate = await page.evaluate(() => {
+    const host = document.getElementById('skk-browser-ext-hud-root');
+    return host?.shadowRoot?.querySelector('.skk-candidate')?.textContent;
+  });
+  console.log(`[ContentEditable] Candidate in HUD: "${candidate}"`);
+
   await page.keyboard.press('Enter');
 
   const ceValue = await page.$eval('#contenteditable-test', (el) => el.textContent);
-  console.log(`[ContentEditable] Value: "${ceValue}"`);
+  console.log(`[ContentEditable] Final value: "${ceValue}"`);
 
+  // In SKK: Katakana mode -> Ctrl+j transitions to Hiragana mode -> Ctrl+j transitions to Ascii mode
+  await page.keyboard.down('Control');
+  await page.keyboard.press('KeyJ');
+  await page.keyboard.up('Control');
   await page.keyboard.down('Control');
   await page.keyboard.press('KeyJ');
   await page.keyboard.up('Control');
 
   // --- Test 4: Monaco Editor (VS Code for Web Core) ---
+  // Ctrl+j -> type Nihon -> Space -> 日本 -> Enter -> test Monaco Undo
   console.log('\n--- Testing Monaco Editor (VS Code for Web Core) ---');
   await page.waitForFunction(() => window.monacoEditor !== undefined, { timeout: 15000 });
   console.log('[Monaco] Monaco Editor loaded.');
 
-  // Focus Monaco editor and set cursor
+  // Focus Monaco editor and set cursor position
   await page.evaluate(() => {
     window.monacoEditor.focus();
     window.monacoEditor.setPosition({ lineNumber: 3, column: 3 });
@@ -203,12 +246,6 @@ async function runVerification() {
   });
   console.log(`[Monaco] HUD tracked position:`, hudInfo);
 
-  // Type direct kana: 'ka' -> 'か'
-  await page.keyboard.type('ka');
-
-  let monacoText = await page.evaluate(() => window.monacoEditor.getValue());
-  console.log(`[Monaco] Text after typing 'ka':\n${monacoText}`);
-
   // Convert Nihon -> 日本
   await page.keyboard.down('Shift');
   await page.keyboard.press('KeyN');
@@ -217,18 +254,23 @@ async function runVerification() {
   await page.keyboard.press('Space');
   await page.keyboard.press('Enter');
 
-  monacoText = await page.evaluate(() => window.monacoEditor.getValue());
+  const monacoText = await page.evaluate(() => window.monacoEditor.getValue());
   console.log(`[Monaco] Text after converting 'Nihon' -> '日本':\n${monacoText}`);
 
   // Test Undo in Monaco (Ctrl+z)
   console.log('[Monaco] Testing Monaco internal Undo stack...');
+  // In SKK, Enter fixates the candidate and inserts a newline.
+  // Undo reverts newline then candidate cleanly back to initial state.
+  await page.keyboard.down('Control');
+  await page.keyboard.press('KeyZ');
+  await page.keyboard.up('Control');
   await page.keyboard.down('Control');
   await page.keyboard.press('KeyZ');
   await page.keyboard.up('Control');
   const monacoAfterUndo = await page.evaluate(() => window.monacoEditor.getValue());
   console.log(`[Monaco] Text after Undo (Ctrl+Z):\n${monacoAfterUndo}`);
 
-  // Save screenshot
+  // Save verification screenshot
   const screenshotPath = path.resolve(ROOT, 'poc-screenshot.png');
   await page.screenshot({ path: screenshotPath });
   console.log(`\n[Screenshot] Saved headless verification screenshot to: ${screenshotPath}`);
@@ -236,10 +278,10 @@ async function runVerification() {
   await browser.close();
 
   // Assertions
-  const inputOk = inputValue.includes('日本') && inputValue.includes('にほん');
-  const taOk = taValue.includes('東京') && taValue.includes('とうきょう');
+  const inputOk = inputValue === '日本' || inputValue.includes('日本');
+  const taOk = taValue.includes('行く');
   const ceOk = ceValue.includes('漢字');
-  const monacoOk = monacoText.includes('日本') && monacoText.includes('か');
+  const monacoOk = monacoText.includes('日本') && !monacoAfterUndo.includes('日本');
 
   console.log('\n--- Assertion Summary ---');
   console.log(`1. Standard <input>: ${inputOk ? 'PASSED ✅' : 'FAILED ❌'}`);
@@ -248,7 +290,7 @@ async function runVerification() {
   console.log(`4. Monaco Editor (VS Code): ${monacoOk ? 'PASSED ✅' : 'FAILED ❌'}`);
 
   if (inputOk && taOk && ceOk && monacoOk) {
-    console.log('\n🎉 ALL POC VERIFICATION TESTS PASSED SUCCESSFULLY! 🎉');
+    console.log('\n🎉 ALL SKK ENGINE VERIFICATION TESTS PASSED SUCCESSFULLY! 🎉');
   } else {
     throw new Error('Some verification tests failed.');
   }
