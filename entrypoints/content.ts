@@ -107,10 +107,8 @@ export class SkkContentEngine {
         } else if (mode instanceof HiraganaMode) {
           if (isComposing) {
             await mode.ctrlJInput();
-            this.adapter.updateHUD();
-          } else {
-            this.adapter.setInputMode(AsciiMode.getInstance());
           }
+          this.adapter.updateHUD();
         } else {
           if (isComposing) {
             await mode.ctrlJInput();

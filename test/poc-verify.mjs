@@ -25,10 +25,11 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
-server.listen(3456, '127.0.0.1', async () => {
-  console.log('[Test Server] Serving on http://127.0.0.1:3456/test.html');
+server.listen(0, '127.0.0.1', async () => {
+  const port = server.address().port;
+  console.log(`[Test Server] Serving on http://127.0.0.1:${port}/test.html`);
   try {
-    await runVerification();
+    await runVerification(port);
   } catch (err) {
     console.error('[Test Failed with Error]:', err);
     process.exitCode = 1;
@@ -37,7 +38,7 @@ server.listen(3456, '127.0.0.1', async () => {
   }
 });
 
-async function runVerification() {
+async function runVerification(port) {
   console.log('[Puppeteer] Launching Chrome for Testing in HEADLESS mode...');
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
@@ -63,8 +64,8 @@ async function runVerification() {
     console.log('  [Browser PageError]:', err);
   });
 
-  console.log('[Puppeteer] Navigating to http://127.0.0.1:3456/test.html');
-  await page.goto('http://127.0.0.1:3456/test.html', { waitUntil: 'networkidle0' });
+  console.log(`[Puppeteer] Navigating to http://127.0.0.1:${port}/test.html`);
+  await page.goto(`http://127.0.0.1:${port}/test.html`, { waitUntil: 'networkidle0' });
 
   // Wait for content script to inject HUD element
   console.log('[Check 1] Waiting for SKK HUD host element in DOM...');
