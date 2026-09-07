@@ -300,6 +300,8 @@ export class MockEditor implements IEditor {
             this.midashigoStartPosition = null;
             this.midashigoText = "";
             this.currentCandidate = undefined;
+            this.remainingRomaji = "";
+            this.isOkuriState = false;
         }
         return true;
     }
