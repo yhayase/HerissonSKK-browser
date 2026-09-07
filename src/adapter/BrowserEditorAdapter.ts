@@ -10,6 +10,7 @@ import { HiraganaMode } from "../core/skk/input-mode/HiraganaMode";
 import { KatakanaMode } from "../core/skk/input-mode/KatakanaMode";
 import { ZeneiMode } from "../core/skk/input-mode/ZeneiMode";
 import { AsciiMode } from "../core/skk/input-mode/AsciiMode";
+import { RegistrationMode } from "../core/skk/input-mode/henkan/RegistrationMode";
 import { FloatingHUD } from "../hud/FloatingHUD";
 import { getActiveCaretCoordinates } from "./CaretPosition";
 import { insertText, isInputElement, isTextAreaElement, isSelectableInput } from "./TextInserter";
@@ -385,7 +386,20 @@ export class BrowserEditorAdapter implements IEditor {
         this.registrationYomi = yomi;
         this.registrationOkuri = okuri;
         this.lastStatus = `[辞書登録: ${yomi}]`;
-        this.updateHUD();
+
+        // Clear midashigo and candidate state from browser editor
+        this.inMidashigo = false;
+        this.midashigoText = "";
+        this.remainingRomaji = "";
+        this.isOkuri = false;
+        this.currentCandidate = undefined;
+        this.currentOkuri = "";
+        this.currentSuffix = "";
+
+        const prevMode = this.currentInputMode;
+        const parentReg = prevMode instanceof RegistrationMode ? prevMode : undefined;
+        const regMode = new RegistrationMode(yomi, okuri, this, prevMode, parentReg);
+        this.setInputMode(regMode);
     }
 
     public async registerMidashigo(): Promise<void> {
@@ -399,6 +413,9 @@ export class BrowserEditorAdapter implements IEditor {
     // --- Mode & HUD Presentation ---
 
     public getModeBadgeText(): string {
+        if (this.currentInputMode instanceof RegistrationMode) {
+            return this.currentInputMode.toString();
+        }
         if (this.currentInputMode instanceof HiraganaMode) {
             return "かな";
         }
@@ -435,23 +452,57 @@ export class BrowserEditorAdapter implements IEditor {
         const modeBadge = this.getModeBadgeText();
 
         let preeditStr = "";
-        if (this.currentCandidate) {
-            preeditStr = this.remainingRomaji ? this.remainingRomaji : "";
-        } else if (this.inMidashigo) {
-            preeditStr = "▽" + this.midashigoText + (this.isOkuri ? "*" : "") + this.remainingRomaji;
-        } else if (this.remainingRomaji) {
-            preeditStr = this.remainingRomaji;
-        }
+        let candidateText: string | undefined = undefined;
+        let statusText: string = "";
 
-        const candidateText = this.currentCandidate
-            ? this.currentCandidate.word + (this.currentOkuri || "") + (this.currentSuffix || "")
-            : undefined;
+        if (this.currentInputMode instanceof RegistrationMode) {
+            const regMode = this.currentInputMode;
+            const mb = regMode.getMiniBufferEditor();
+            const prompt = regMode.getPromptHeader();
+            let mbPreedit = mb.getCommittedText();
 
-        let statusText = this.currentCandidate?.annotation || this.lastStatus || "";
-        if (this.candidateAlphabetList.length > 0) {
-            statusText = this.candidateAlphabetList
-                .map((key, i) => `${key}:${this.candidateList[i]?.word ?? ""}`)
-                .join(" ");
+            if (mb.getCurrentCandidate()) {
+                const cand = mb.getCurrentCandidate();
+                candidateText = cand ? cand.word + mb.getCurrentOkuri() + mb.getCurrentSuffix() : undefined;
+                if (mb.getRemainingRomaji()) {
+                    mbPreedit += mb.getRemainingRomaji();
+                }
+            } else if (mb.isInMidashigo()) {
+                mbPreedit += "▽" + mb.getMidashigoText() + (mb.isOkuriStateActive() ? "*" : "") + mb.getRemainingRomaji();
+            } else if (mb.getRemainingRomaji()) {
+                mbPreedit += mb.getRemainingRomaji();
+            }
+            preeditStr = prompt + mbPreedit;
+
+            const candList = mb.getCandidateList();
+            if (candList.selectionKeys.length > 0) {
+                statusText = candList.selectionKeys
+                    .map((key, i) => `${key}:${candList.candidates[i]?.word ?? ""}`)
+                    .join(" ");
+            } else if (mb.getCurrentCandidate()?.annotation) {
+                statusText = mb.getCurrentCandidate()?.annotation || "";
+            } else {
+                statusText = this.lastStatus || "";
+            }
+        } else {
+            if (this.currentCandidate) {
+                preeditStr = this.remainingRomaji ? this.remainingRomaji : "";
+            } else if (this.inMidashigo) {
+                preeditStr = "▽" + this.midashigoText + (this.isOkuri ? "*" : "") + this.remainingRomaji;
+            } else if (this.remainingRomaji) {
+                preeditStr = this.remainingRomaji;
+            }
+
+            candidateText = this.currentCandidate
+                ? this.currentCandidate.word + (this.currentOkuri || "") + (this.currentSuffix || "")
+                : undefined;
+
+            statusText = this.currentCandidate?.annotation || this.lastStatus || "";
+            if (this.candidateAlphabetList.length > 0) {
+                statusText = this.candidateAlphabetList
+                    .map((key, i) => `${key}:${this.candidateList[i]?.word ?? ""}`)
+                    .join(" ");
+            }
         }
 
         this.hud.update({

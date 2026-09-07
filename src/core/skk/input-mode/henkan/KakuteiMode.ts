@@ -33,7 +33,7 @@ export class KakuteiMode extends AbstractHenkanMode {
 
     async onLowerAlphabet(context: AbstractKanaMode, key: string): Promise<void> {
         if (key === 'l') {
-            this.editor.setInputMode(AsciiMode.getInstance());
+            this.editor.setInputMode(AsciiMode.getInstance(this.editor));
             return;
         }
 
@@ -46,7 +46,7 @@ export class KakuteiMode extends AbstractHenkanMode {
     
     async onUpperAlphabet(context: AbstractKanaMode, key: string): Promise<void> {
         if (key === 'L') {
-            this.editor.setInputMode(ZeneiMode.getInstance());
+            this.editor.setInputMode(ZeneiMode.getInstance(this.editor));
             return;
         }
 

@@ -1,5 +1,6 @@
 import { HiraganaMode } from "./HiraganaMode";
 import { AbstractInputMode } from "./AbstractInputMode";
+import type { IEditor } from "../editor/IEditor";
 
 export class ZeneiMode extends AbstractInputMode {
     private static zenkakuEisuuList: string[] = [
@@ -32,8 +33,12 @@ export class ZeneiMode extends AbstractInputMode {
         return rval;
     }
 
-    public static getInstance(): ZeneiMode {
-        return new ZeneiMode();
+    constructor(editor?: IEditor) {
+        super(editor);
+    }
+
+    public static getInstance(editor?: IEditor): ZeneiMode {
+        return new ZeneiMode(editor);
     }
 
     public async reset(): Promise<void> {
@@ -53,7 +58,7 @@ export class ZeneiMode extends AbstractInputMode {
     }
 
     public async ctrlJInput(): Promise<void> {
-        this.editor.setInputMode(HiraganaMode.getInstance());
+        this.editor.setInputMode(HiraganaMode.getInstance(this.editor));
     }
 
     public async ctrlGInput(): Promise<void> {

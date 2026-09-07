@@ -3,9 +3,15 @@ import type { IInputMode } from "./IInputMode";
 import { KatakanaMode } from "./KatakanaMode";
 import { AbstractKanaMode } from "./AbstractKanaMode";
 
+import type { IEditor } from "../editor/IEditor";
+
 export class HiraganaMode extends AbstractKanaMode implements IInputMode {
-    static getInstance(): HiraganaMode {
-        return new HiraganaMode();
+    constructor(editor?: IEditor) {
+        super(editor);
+    }
+
+    static getInstance(editor?: IEditor): HiraganaMode {
+        return new HiraganaMode(editor);
     }
 
     newRomajiInput(): RomajiInput {
@@ -17,7 +23,7 @@ export class HiraganaMode extends AbstractKanaMode implements IInputMode {
     }
 
     protected nextMode() {
-        return KatakanaMode.getInstance();
+        return KatakanaMode.getInstance(this.editor);
     }
 
     protected getKanaModeBaseName(): string {
