@@ -428,6 +428,7 @@ describe('RomajiInput', () => {
             // Katakana okuri
             expect(lookupOkuriAlphabet('ル')).toBe('r');
             expect(lookupOkuriAlphabet('ク')).toBe('k');
+            expect(lookupOkuriAlphabet('ボ')).toBe('b');
 
             // Empty or invalid input
             expect(lookupOkuriAlphabet('')).toBeUndefined();
