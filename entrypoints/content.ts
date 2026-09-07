@@ -68,12 +68,7 @@ export class SkkContentEngine {
     if (target !== undefined) {
       this.adapter.setTargetElement(target);
     }
-    const currentMode = this.adapter.getCurrentInputMode();
-    if (currentMode instanceof AsciiMode) {
-      this.hud.hide();
-    } else {
-      this.adapter.updateHUD();
-    }
+    this.adapter.updateHUD();
   }
 
   public async handleKeyDown(e: KeyboardEvent): Promise<void> {
@@ -109,14 +104,12 @@ export class SkkContentEngine {
 
         if (mode instanceof AsciiMode) {
           this.adapter.setInputMode(HiraganaMode.getInstance());
-          this.adapter.updateHUD();
         } else if (mode instanceof HiraganaMode) {
           if (isComposing) {
             await mode.ctrlJInput();
             this.adapter.updateHUD();
           } else {
             this.adapter.setInputMode(AsciiMode.getInstance());
-            this.hud.hide();
           }
         } else {
           if (isComposing) {
@@ -124,7 +117,6 @@ export class SkkContentEngine {
             this.adapter.updateHUD();
           } else {
             this.adapter.setInputMode(HiraganaMode.getInstance());
-            this.adapter.updateHUD();
           }
         }
         return;
@@ -172,11 +164,19 @@ export class SkkContentEngine {
 
       // Enter
       if (e.key === 'Enter') {
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        await mode.enterInput();
-        this.adapter.updateHUD();
+        const isComposing =
+          this.adapter.isInMidashigo() ||
+          !!this.adapter.getCurrentCandidate() ||
+          !!this.adapter.getRemainingRomaji();
+
+        if (isComposing) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          await mode.enterInput();
+          this.adapter.updateHUD();
+          return;
+        }
         return;
       }
 
@@ -200,11 +200,7 @@ export class SkkContentEngine {
           e.stopPropagation();
           e.stopImmediatePropagation();
           await mode.lowerAlphabetInput(char);
-          if (this.adapter.getCurrentInputMode() instanceof AsciiMode) {
-            this.hud.hide();
-          } else {
-            this.adapter.updateHUD();
-          }
+          this.adapter.updateHUD();
           return;
         }
 
@@ -214,11 +210,7 @@ export class SkkContentEngine {
           e.stopPropagation();
           e.stopImmediatePropagation();
           await mode.upperAlphabetInput(char);
-          if (this.adapter.getCurrentInputMode() instanceof AsciiMode) {
-            this.hud.hide();
-          } else {
-            this.adapter.updateHUD();
-          }
+          this.adapter.updateHUD();
           return;
         }
 
@@ -263,11 +255,7 @@ export default defineContentScript({
     const updateActiveTarget = () => {
       const target = document.activeElement;
       engine.adapter.setTargetElement(target);
-      if (!(engine.adapter.getCurrentInputMode() instanceof AsciiMode)) {
-        engine.adapter.updateHUD();
-      } else {
-        engine.hud.hide();
-      }
+      engine.adapter.updateHUD();
     };
 
     window.addEventListener('focusin', updateActiveTarget, { capture: true });

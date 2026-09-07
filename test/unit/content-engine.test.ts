@@ -19,6 +19,7 @@ const mockDocument = {
   body: {
     appendChild: () => {},
   },
+  execCommand: () => false,
   activeElement: null as any,
 };
 
@@ -39,6 +40,7 @@ import { AsciiMode } from "../../src/core/skk/input-mode/AsciiMode";
 import { HiraganaMode } from "../../src/core/skk/input-mode/HiraganaMode";
 import { KatakanaMode } from "../../src/core/skk/input-mode/KatakanaMode";
 import { ZeneiMode } from "../../src/core/skk/input-mode/ZeneiMode";
+import { Candidate } from "../../src/core/skk/jisyo/candidate";
 
 import type { SkkContentEngine as TSkkContentEngine } from "../../entrypoints/content";
 
@@ -356,6 +358,201 @@ describe("SkkContentEngine verified findings", () => {
       await expect(engine.handleKeyDown(event)).resolves.not.toThrow();
       expect(consoleErrorSpy).toHaveBeenCalledWith("[SKK] Keydown error:", expect.any(Error));
       consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe("handleKeyDown - Enter pass-through vs intercept", () => {
+    let mockInput: any;
+
+    beforeEach(() => {
+      mockInput = {
+        tagName: "INPUT",
+        type: "text",
+        readOnly: false,
+        disabled: false,
+        value: "",
+        selectionStart: 0,
+        selectionEnd: 0,
+        setSelectionRange: vi.fn(),
+        dispatchEvent: vi.fn(),
+        getBoundingClientRect: () => ({ left: 10, top: 20, right: 100, bottom: 40, width: 90, height: 20 }),
+      };
+      (globalThis as any).document.activeElement = mockInput;
+      engine.adapter.setInputMode(HiraganaMode.getInstance());
+    });
+
+    it("passes through Enter when not composing (does NOT call preventDefault)", async () => {
+      const mode = engine.adapter.getCurrentInputMode();
+      const enterSpy = vi.spyOn(mode, "enterInput");
+      const preventDefault = vi.fn();
+      const stopPropagation = vi.fn();
+      const stopImmediatePropagation = vi.fn();
+
+      const event = {
+        isComposing: false,
+        keyCode: 13,
+        key: "Enter",
+        code: "Enter",
+        preventDefault,
+        stopPropagation,
+        stopImmediatePropagation,
+      } as any;
+
+      await engine.handleKeyDown(event);
+      expect(preventDefault).not.toHaveBeenCalled();
+      expect(stopPropagation).not.toHaveBeenCalled();
+      expect(stopImmediatePropagation).not.toHaveBeenCalled();
+      expect(enterSpy).not.toHaveBeenCalled();
+    });
+
+    it("intercepts Enter when midashigo composition is active", async () => {
+      engine.adapter.setMidashigoStartToCurrentPosition();
+      expect(engine.adapter.isInMidashigo()).toBe(true);
+
+      const mode = engine.adapter.getCurrentInputMode();
+      const enterSpy = vi.spyOn(mode, "enterInput");
+      const preventDefault = vi.fn();
+      const stopPropagation = vi.fn();
+      const stopImmediatePropagation = vi.fn();
+
+      const event = {
+        isComposing: false,
+        keyCode: 13,
+        key: "Enter",
+        code: "Enter",
+        preventDefault,
+        stopPropagation,
+        stopImmediatePropagation,
+      } as any;
+
+      await engine.handleKeyDown(event);
+      expect(preventDefault).toHaveBeenCalled();
+      expect(stopPropagation).toHaveBeenCalled();
+      expect(stopImmediatePropagation).toHaveBeenCalled();
+      expect(enterSpy).toHaveBeenCalled();
+    });
+
+    it("intercepts Enter when candidate conversion is active", async () => {
+      await engine.adapter.showCandidate(new Candidate("テスト"), "", "");
+      expect(engine.adapter.getCurrentCandidate()).toBeDefined();
+
+      const mode = engine.adapter.getCurrentInputMode();
+      const enterSpy = vi.spyOn(mode, "enterInput");
+      const preventDefault = vi.fn();
+      const stopPropagation = vi.fn();
+      const stopImmediatePropagation = vi.fn();
+
+      const event = {
+        isComposing: false,
+        keyCode: 13,
+        key: "Enter",
+        code: "Enter",
+        preventDefault,
+        stopPropagation,
+        stopImmediatePropagation,
+      } as any;
+
+      await engine.handleKeyDown(event);
+      expect(preventDefault).toHaveBeenCalled();
+      expect(stopPropagation).toHaveBeenCalled();
+      expect(stopImmediatePropagation).toHaveBeenCalled();
+      expect(enterSpy).toHaveBeenCalled();
+    });
+
+    it("intercepts Enter when remaining romaji is active", async () => {
+      engine.adapter.showRemainingRomaji("k", false, 0);
+      expect(engine.adapter.getRemainingRomaji()).toBe("k");
+
+      const mode = engine.adapter.getCurrentInputMode();
+      const enterSpy = vi.spyOn(mode, "enterInput");
+      const preventDefault = vi.fn();
+      const stopPropagation = vi.fn();
+      const stopImmediatePropagation = vi.fn();
+
+      const event = {
+        isComposing: false,
+        keyCode: 13,
+        key: "Enter",
+        code: "Enter",
+        preventDefault,
+        stopPropagation,
+        stopImmediatePropagation,
+      } as any;
+
+      await engine.handleKeyDown(event);
+      expect(preventDefault).toHaveBeenCalled();
+      expect(stopPropagation).toHaveBeenCalled();
+      expect(stopImmediatePropagation).toHaveBeenCalled();
+      expect(enterSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe("HUD auto-hide on AsciiMode", () => {
+    let mockInput: any;
+
+    beforeEach(() => {
+      mockInput = {
+        tagName: "INPUT",
+        type: "text",
+        readOnly: false,
+        disabled: false,
+        value: "",
+        selectionStart: 0,
+        selectionEnd: 0,
+        setSelectionRange: vi.fn(),
+        dispatchEvent: vi.fn(),
+        getBoundingClientRect: () => ({ left: 10, top: 20, right: 100, bottom: 40, width: 90, height: 20 }),
+      };
+      (globalThis as any).document.activeElement = mockInput;
+    });
+
+    it("automatically hides HUD when switching to AsciiMode via setInputMode", () => {
+      engine.adapter.setInputMode(HiraganaMode.getInstance());
+      expect(engine.hud.getVisible()).toBe(true);
+
+      engine.adapter.setInputMode(AsciiMode.getInstance());
+      expect(engine.hud.getVisible()).toBe(false);
+    });
+
+    it("automatically hides HUD when typing 'l' to switch to AsciiMode", async () => {
+      engine.adapter.setInputMode(HiraganaMode.getInstance());
+      expect(engine.hud.getVisible()).toBe(true);
+
+      const event = {
+        isComposing: false,
+        keyCode: 76,
+        key: "l",
+        code: "KeyL",
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+        stopImmediatePropagation: vi.fn(),
+      } as any;
+
+      await engine.handleKeyDown(event);
+      expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(AsciiMode);
+      expect(engine.hud.getVisible()).toBe(false);
+    });
+
+    it("automatically hides HUD when pressing Ctrl+J to toggle to AsciiMode while idle", async () => {
+      engine.adapter.setInputMode(HiraganaMode.getInstance());
+      expect(engine.hud.getVisible()).toBe(true);
+
+      const event = {
+        isComposing: false,
+        keyCode: 74,
+        ctrlKey: true,
+        altKey: false,
+        shiftKey: false,
+        key: "j",
+        code: "KeyJ",
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+        stopImmediatePropagation: vi.fn(),
+      } as any;
+
+      await engine.handleKeyDown(event);
+      expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(AsciiMode);
+      expect(engine.hud.getVisible()).toBe(false);
     });
   });
 });
