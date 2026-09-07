@@ -1,9 +1,15 @@
 import { HiraganaMode } from "./HiraganaMode";
 import { AbstractInputMode } from "./AbstractInputMode";
 
+import type { IEditor } from "../editor/IEditor";
+
 export class AsciiMode extends AbstractInputMode {
-    public static getInstance(): AsciiMode {
-        return new AsciiMode();
+    constructor(editor?: IEditor) {
+        super(editor);
+    }
+
+    public static getInstance(editor?: IEditor): AsciiMode {
+        return new AsciiMode(editor);
     }
 
     public async reset(): Promise<void> {
@@ -23,7 +29,7 @@ export class AsciiMode extends AbstractInputMode {
     }
 
     public async ctrlJInput(): Promise<void> {
-        this.editor.setInputMode(HiraganaMode.getInstance());
+        this.editor.setInputMode(HiraganaMode.getInstance(this.editor));
     }
 
     public async ctrlGInput(): Promise<void> {

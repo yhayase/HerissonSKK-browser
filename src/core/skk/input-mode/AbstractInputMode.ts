@@ -4,8 +4,8 @@ import { EditorFactory } from "../editor/EditorFactory";
 
 export abstract class AbstractInputMode implements IInputMode {
     protected editor: IEditor;
-    constructor() {
-        this.editor = EditorFactory.getInstance().getEditor();
+    constructor(editor?: IEditor) {
+        this.editor = editor ?? EditorFactory.getInstance().getEditor();
     }
     abstract reset(): Promise<void>;
     abstract lowerAlphabetInput(key: string): Promise<void>;
