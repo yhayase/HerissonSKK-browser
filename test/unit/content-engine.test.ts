@@ -1,3 +1,4 @@
+import "fake-indexeddb/auto";
 import { describe, it, expect, beforeEach, beforeAll, vi } from "vitest";
 
 let SkkContentEngine: any;
