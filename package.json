@@ -20,6 +20,7 @@
   "devDependencies": {
     "@types/textarea-caret": "^3.0.4",
     "@types/wanakana": "^4.0.6",
+    "fake-indexeddb": "^6.2.5",
     "puppeteer-core": "^25.10.0",
     "typescript": "^5.9.3",
     "vite": "^8.1.5",
