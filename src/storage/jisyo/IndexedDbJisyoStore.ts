@@ -34,7 +34,7 @@ export interface IndexedDbJisyoStoreOptions {
     storeName?: string;
 
     /**
-     * Database schema version. Defaults to 1.
+     * Database schema version. Defaults to 2.
      */
     version?: number;
 
@@ -106,7 +106,7 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
     constructor(options?: IndexedDbJisyoStoreOptions) {
         this.dbName = options?.dbName ?? "skk_dictionary";
         this.storeName = options?.storeName ?? "system_jisyo";
-        this.version = options?.version ?? 1;
+        this.version = options?.version ?? 2;
         this.idbFactory = options?.indexedDB;
     }
 
@@ -149,6 +149,12 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
 
                 request.onupgradeneeded = () => {
                     const db = request.result;
+                    if (!db.objectStoreNames.contains("system_jisyo")) {
+                        db.createObjectStore("system_jisyo", { keyPath: "key" });
+                    }
+                    if (!db.objectStoreNames.contains("user_jisyo")) {
+                        db.createObjectStore("user_jisyo", { keyPath: "key" });
+                    }
                     if (!db.objectStoreNames.contains(this.storeName)) {
                         db.createObjectStore(this.storeName, { keyPath: "key" });
                     }
