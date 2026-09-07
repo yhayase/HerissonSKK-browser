@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const EXT_PATH = path.resolve(ROOT, '.output/chrome-mv3');
 const PUBLIC_DIR = path.resolve(ROOT, 'public');
-const CHROME_PATH = path.resolve(ROOT, 'chrome/linux-152.0.7977.82/chrome-linux64/chrome');
+const CHROME_PATH = process.env.CHROME_BIN || path.resolve(ROOT, 'chrome/linux-152.0.7977.82/chrome-linux64/chrome');
 const PROFILE_DIR = path.resolve(ROOT, '.browser-profile');
 
 // Ensure profile dir exists
