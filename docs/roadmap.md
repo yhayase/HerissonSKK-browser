@@ -35,8 +35,8 @@ flowchart TD
 | フェーズ | テーマ | 状態 | 主な成果物・マイルストーン |
 | :--- | :--- | :---: | :--- |
 | **Phase 1** | **汎用入力 & Monaco Editor PoC** | **完了 ✅** | キー横取り、汎用要素・Monaco への文字挿入、キャレット追従 HUD、フルスクリーン対応、ヘッドレス E2E テスト |
-| **Phase 2** | **SKK コアエンジン移植 & ブラウザ適応** | **着手 🚀** | `src/core/` への純粋 TypeScript 移植（ローマ字変換、各入力モード、接頭辞/接尾辞）、DOM 非汚染な `BrowserEditorAdapter` |
-| **Phase 3** | **辞書ストレージ & 検索エンジン (IndexedDB)** | 未着手 ⏳ | SKK 辞書モデル/パーサーの移植、大容量辞書の IndexedDB 格納、高速完全一致/前方一致検索、個人学習辞書 |
+| **Phase 2** | **SKK コアエンジン移植 & ブラウザ適応** | **完了 ✅** | `src/core/` への純粋 TypeScript 移植（ローマ字変換、各入力モード、接頭辞/接尾辞）、DOM 非汚染な `BrowserEditorAdapter`、単体テスト(137件) |
+| **Phase 3** | **辞書ストレージ & 検索エンジン (IndexedDB)** | **次フェーズ 🚀** | SKK 辞書モデル/パーサーの移植、大容量辞書の IndexedDB 格納、高速完全一致/前方一致検索、個人学習辞書 |
 | **Phase 4** | **SKK コアエンジンの共通ライブラリ抽出** | 未着手 ⏳ | `src/core/` を独立パッケージ（`@yhayase/skk-core` 等）として切り出し、`skk-vscode` とブラウザ拡張の双方で共通利用 |
 | **Phase 5** | **UI/UX 改善 & 候補選択メニュー** | 未着手 ⏳ | 複数候補一覧メニュー（1〜9 選択、Space 送り、x 戻り）、ビューポート端へのクランプ、ダーク/ライトテーマ追従 |
 | **Phase 6** | **設定画面・ドメイン制御 & ストア公開準備** | 未着手 ⏳ | ポップアップ UI（有効/無効・除外サイト）、オプション画面（キーバインド・辞書管理）、Chrome/Firefox パッケージング |
@@ -61,10 +61,10 @@ flowchart TD
 
 ---
 
-### Phase 2: SKK コアエンジン移植 & ブラウザ適応（着手 🚀）
+### Phase 2: SKK コアエンジン移植 & ブラウザ適応（完了 ✅）
 
 - **目的**: `skk-vscode` の SKK 状態遷移マシンおよびローマ字変換ロジックを、将来の共通ライブラリ化を見据えて `src/core/`（環境非依存の純粋 TypeScript 層）に移植し、ブラウザ用のエディタアダプタと統合する。
-- **タスク一覧**:
+- **実装内容**:
   1. **環境非依存コア（`src/core/`）の移植**:
      - `romaji/RomKanaRule.ts`, `romaji/RomajiInput.ts` の移植。
      - 入力モード基盤（`IInputMode`, `AbstractInputMode`, `AbstractKanaMode`）。
@@ -72,10 +72,16 @@ flowchart TD
      - 変換モードの実装（`MidashigoMode`, `InlineHenkanMode`, `MenuHenkanMode`, `AbbrevMode`、送りあり/なし、接頭辞/接尾辞 `>`）。
   2. **ブラウザ向けエディタアダプタ (`BrowserEditorAdapter`) の構築**:
      - Web フォームで DOM を汚染しないよう、未確定バッファ（`▽` や `▼`）をメモリ・HUD 側で保持し、確定時のみ `TextInserter` で DOM に流し込む `IEditor` 実装。
-  3. **単体テストの整備**:
-     - Vitest を導入し、ローマ字バッファ・各種モードの状態遷移をヘッドレスで網羅的に検証する単体テスト環境を構築。
-- **完了条件**:
-  - インメモリ辞書を用いて、ひらがな入力、カタカナ変換、送りあり/なし変換、確定がブラウザ上でスムーズに動作すること。
+     - 送りあり・送りなし・接頭辞/接尾辞変換に対応したインメモリ辞書プロバイダ (`SimpleMemoryJisyoProvider`)。
+     - `document.execCommand('delete')` 優先試行による Undo/Redo スタック保護、および非テキスト入力欄での例外回避。
+  3. **Content Script への本統合**:
+     - `entrypoints/content.ts` を新コアエンジン + `BrowserEditorAdapter` に完全移行。
+     - 未確定時以外の Enter キー透過（フォーム送信・改行・インデント保護）、OS ネイティブ IME 入力中（`isComposing`）の衝突回避ガード。
+  4. **単体・結合テストの完備**:
+     - Vitest による 137 件の単体テスト（全件パス）。
+     - Chrome for Testing + `xvfb-run` による全 4 要素（`<input>`, `<textarea>`, `contenteditable`, Monaco Editor）での E2E 自動結合テスト（全件パス）。
+- **検証結果**:
+  - 全 137 件の単体テストおよび 4 種の入力要素での E2E テストがエラー 0 でパス。Undo 履歴も正常に動作することを確認済み。
 
 ---
 
