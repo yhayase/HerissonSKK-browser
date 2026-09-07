@@ -15,10 +15,11 @@ SKK コアエンジン（ステートマシン、ローマ字変換、辞書モ�
 ```mermaid
 flowchart TD
     Phase2["Phase 2: src/core/ に独立層として移植<br>(ステートマシン・ローマ字エンジンのブラウザ適応)"]
-    Phase3["Phase 3: 辞書モデル・検索エンジンの移植<br>(IndexedDB 連携・パーサーの結合)"]
+    Phase3["Phase 3: 辞書モデル・検索エンジンの移植<br>(IndexedDB 連携・標準辞書・Firefox E2E)"]
+    Phase31["Phase 3.1: JSON 辞書ローダー & ストレージフォーマット検討<br>(skk-dict/jisyo 形式対応・データ構造最適化)"]
     Phase4["Phase 4: 共通ライブラリとして抽出・独立パッケージ化<br>(@yhayase/skk-core を切り出し、skk-vscode と双方で共有)"]
 
-    Phase2 --> Phase3 --> Phase4
+    Phase2 --> Phase3 --> Phase31 --> Phase4
 ```
 
 1. **ブラウザ拡張内に独立層（`src/core/`）として先行移植（Phase 2〜3）**:
@@ -36,7 +37,8 @@ flowchart TD
 | :--- | :--- | :---: | :--- |
 | **Phase 1** | **汎用入力 & Monaco Editor PoC** | **完了 ✅** | キー横取り、汎用要素・Monaco への文字挿入、キャレット追従 HUD、フルスクリーン対応、ヘッドレス E2E テスト |
 | **Phase 2** | **SKK コアエンジン移植 & ブラウザ適応** | **完了 ✅** | `src/core/` への純粋 TypeScript 移植（ローマ字変換、各入力モード、接頭辞/接尾辞）、DOM 非汚染な `BrowserEditorAdapter`、単体テスト(137件) |
-| **Phase 3** | **辞書ストレージ & 検索エンジン (IndexedDB)・Firefox E2E** | **次フェーズ 🚀** | SKK 辞書モデル/パーサーの移植、大容量辞書の IndexedDB 格納、高速検索、個人学習辞書、再帰辞書登録、Firefox (Gecko) ヘッドレス E2E 自動検証 |
+| **Phase 3** | **辞書ストレージ & 検索エンジン (IndexedDB)・Firefox E2E** | **完了 ✅ (PRレビュー中)** | 標準 SKK 辞書パーサー、大容量辞書の IndexedDB 格納、高速前方一致検索、学習・個人辞書同期、再帰辞書登録、Firefox (Gecko) ヘッドレス E2E 自動検証(全10件パス) |
+| **Phase 3.1** | **JSON 辞書ローダー & IndexedDB データフォーマット検討** | **次フェーズ 🚀** | [skk-dict/jisyo](https://github.com/skk-dict/jisyo) JSON 辞書パーサー、IndexedDB 格納フォーマットの比較検討（統一キー vs 分割構造等、事前固定せず性能/容量/検索要件から評価）、スキーマ移行整備 |
 | **Phase 4** | **SKK コアエンジンの共通ライブラリ抽出** | 未着手 ⏳ | `src/core/` を独立パッケージ（`@yhayase/skk-core` 等）として切り出し、`skk-vscode` とブラウザ拡張の双方で共通利用 |
 | **Phase 5** | **UI/UX 改善 & 候補選択メニュー** | 未着手 ⏳ | 複数候補一覧メニュー（1〜9 選択、Space 送り、x 戻り）、ビューポート端へのクランプ、ダーク/ライトテーマ追従 |
 | **Phase 6** | **設定画面・ドメイン制御 & ストア公開準備** | 未着手 ⏳ | ポップアップ UI（有効/無効・除外サイト）、オプション画面（キーバインド・辞書管理）、Chrome/Firefox パッケージング |
@@ -85,31 +87,56 @@ flowchart TD
 
 ---
 
-### Phase 3: 辞書ストレージ & 検索エンジン (IndexedDB)・Firefox E2E（次フェーズ 🚀）
+### Phase 3: 辞書ストレージ & 検索エンジン (IndexedDB)・Firefox E2E（完了 ✅ - PRレビュー中）
 
 - **目的**: ネットワーク通信を行わず完全ローカル・オフラインで動作する高速な SKK 辞書システムを構築し、複数タブ間でのユーザ辞書同期とインライン再帰辞書登録を実現する。また、Gecko エンジン固有の挙動差異（キャレット座標、`insertText`、フルスクリーン等）による手戻りを防ぐため、Firefox でのヘッドレス E2E 自動結合テスト環境をこの段階で導入・完備する。
-- **タスク一覧**:
-  1. **SKK 辞書モデル・パーサーの移植 & 多形式対応**:
-     - `candidate.ts`, `entry.ts`, `okuri.ts`, `jisyo.ts` 等のモデルとパースロジックを `src/core/skk/jisyo/` に移植。
-     - 従来の標準 SKK 辞書形式（EUC-JP / UTF-8、`skk-dev/dict`）に加え、[skk-dict/jisyo](https://github.com/skk-dict/jisyo) で策定されている新世代の JSON 辞書形式（`SKK-JISYO.*.json`）の読み込みパーサーに対応。
+- **実装内容**:
+  1. **SKK 辞書モデル・パーサーの移植 (標準形式)**:
+     - `candidate.ts`, `entry.ts`, `okuri.ts`, `types.ts` 等のモデルとパースロジックを `src/core/skk/jisyo/` に環境非依存で移植。
+     - 従来の標準 SKK 辞書形式（EUC-JP / UTF-8、`skk-dev/dict`）の行・テキスト・バッファ読み込みパーサー（`JisyoParser.ts`）の実装。
   2. **システム辞書ストレージ（IndexedDB）の実装**:
-     - `SKK-JISYO.L` などの大容量辞書を IndexedDB の `jisyo` ストアにインデックス付きで格納。
-     - 見出し語による高速完全一致および前方一致クエリの実装（クエリ応答時間 1〜3ms を目標）。
-  3. **ユーザ辞書ストレージ & 複数タブ同期の実装**:
+     - `public/dict/SKK-JISYO.S` などの辞書を IndexedDB の `system_jisyo` ストアにインデックス付きで格納。
+     - 見出し語による高速完全一致および前方一致クエリ（`IDBKeyRange.bound`）の実装（クエリ応答時間 1〜3ms を達成）。
+  3. **ユーザ辞書ストレージ & 拡張機能コンテキスト分離の実装**:
      - 登録単語および確定履歴（学習・候補並び替え）の IndexedDB (`user_jisyo`) 永続化（ACID トランザクション保証）。
-     - `BroadcastChannel` による複数タブ間のキャッシュ無効化・リアルタイム同期。
+     - Web ページのスクリプトからユーザ辞書を隔離・保護するため、IndexedDB を Background Service Worker に集約し、Content Script からは RPC プロキシ（`RemoteJisyoStore`, `RemoteUserStore`）経由で透過利用するアーキテクチャを確立。
   4. **インライン辞書登録 & 再帰的辞書登録の実装**:
      - フォーカスを外さずに Floating HUD 内のミニバッファで単語を登録する `RegistrationMode`。
-     - 辞書登録中に未知語に遭遇した際の再帰的辞書登録セッション（スタック管理）。
-  5. **初期辞書ロード & 管理機構**:
-     - 拡張機能バンドル辞書の初回自動インポート、または設定からの辞書ファイル読み込み機能。
+     - 辞書登録中に未知語に遭遇した際の再帰的辞書登録セッション（スタック管理、最大ネスト深度ガード付き）。
+  5. **初期辞書ロード & Content Script 統合**:
+     - 拡張機能バンドル辞書（公式 `SKK-JISYO.S`）の初回自動インポート機構（`DictionaryLoader.ts`）。
+     - `entrypoints/content.ts` への `CompositeJisyoProvider` 統合。
   6. **Firefox (Gecko) ヘッドレス E2E 自動結合テストの導入と差異解消**:
-     - Firefox (Gecko) 用ビルド（`wxt build -b firefox`）の自動実行と Puppeteer (または Playwright / web-ext) によるヘッドレス E2E テスト環境の構築。
-     - Chrome と Firefox 間のブラウザ差異（キャレット座標取得、`document.execCommand('insertText')` の挙動、フルスクリーン仕様、IndexedDB / BroadcastChannel 動作）の早期検証・吸収。
+     - Firefox (Gecko) 用ビルド（`wxt build -b firefox`）の自動実行と `geckodriver` によるヘッドレス E2E テスト環境（`test/firefox-verify.mjs`）の構築。
+     - Chrome / Firefox 双方での全入力要素（`<input>`, `<textarea>`, `contenteditable`, Monaco Editor）およびインライン辞書登録・学習の自動テスト（全10件）がパスすることを確認済み。
+- **検証結果**:
+  - 全 272 件の単体テスト、Chrome E2E（5件）、Firefox E2E（5件）の計 10 件のシナリオテストがエラー 0 でパス。
+
+---
+
+### Phase 3.1: JSON 辞書ローダー & IndexedDB データフォーマット検討（次フェーズ 🚀）
+
+- **目的**: [skk-dict/jisyo](https://github.com/skk-dict/jisyo) で策定されている新世代の JSON 辞書形式（`SKK-JISYO.*.json`）の読み込みに対応するとともに、IndexedDB 上での最適なデータ保持構造（単一キーによる統一インデックス vs `okuri_ari` / `okuri_nasi` のストア分離等）を性能・容量・検索要件の観点から定量的に比較・検証し、今後の辞書拡張およびライブラリ化に向けた基盤を確立する。
+- **タスク一覧**:
+  1. **JSON 辞書パーサー / ローダーの実装 (`src/core/skk/jisyo/`)**:
+     - `skk-dict/jisyo` のスキーマ仕様（`jisyo.schema.v0.0.0.json`）に準拠した JSON 形式辞書の読み込みおよびパース機能。
+     - 環境非依存なデータモデルへの変換と、ストリーミング・分割読み込みによるメモリ消費抑制の考慮。
+     - Vitest による JSON パーサーの網羅的単体テスト。
+  2. **IndexedDB 上のデータフォーマット検討 & ベンチマーク**:
+     - **注意**: 現時点で `okuri_ari` / `okuri_nasi` にストアを分割するかどうかを固定せず、以下の構造パターンを試作・ベンチマーク測定して評価する：
+       - **パターン A (現行統一方式)**: 見出し語（送り仮名ブロックを含む）を単一キーとして 1 つのオブジェクトストアに格納。
+       - **パターン B (送りあり/送りなし分割方式)**: JSON 辞書の論理構造に倣い、`okuri_ari` と `okuri_nasi` を別ストア（または複合インデックス）に分離。
+     - **評価基準**:
+       - 見出し語の完全一致検索レイテンシ（1ms 未満の維持）
+       - 前方一致検索（補完候補取得）走査時のカーソル走査コスト
+       - 大容量辞書（`SKK-JISYO.L` 等）インポート時のパース・シリアライズオーバーヘッドおよび IndexedDB のストレージ使用量
+       - ユーザ辞書（学習・登録）や外部辞書（標準テキスト形式・JSON 形式）との整合性・マイグレーション容易性
+  3. **ストレージ層のリファクタリング & 移行パス整備**:
+     - ベンチマーク評価結果に基づき、最適なデータフォーマットへの IndexedDB スキーマバージョニング（`DB_VERSION` アップグレード）および移行処理の実装。
+     - 従来の標準テキスト形式辞書と新世代 JSON 辞書の透過的な共存・併用サポート。
 - **完了条件**:
-  - `SKK-JISYO.L` を取り込み、数十万語の辞書から体感遅延なく漢字変換が行えること。
-  - 複数タブで同時に単語登録を行っても破綻せず、HUD 上で再帰的辞書登録が完了できること。
-  - Chrome と Firefox (Gecko) の双方で全入力要素および辞書機能の E2E 自動テストがパスすること。
+  - `skk-dict/jisyo` の公式 JSON 辞書を正常にインポート・変換できること。
+  - データフォーマットの比較検証結果が文書化され、合意された構造のもとで全単体テスト・E2E テストが継続してパスすること。
 
 ---
 
