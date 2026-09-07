@@ -10,11 +10,14 @@
     "start": "npm run build && node scripts/launch-browser.mjs",
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
+    "build:firefox:zip": "wxt zip -b firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "compile": "tsc --noEmit",
     "test:unit": "vitest run",
     "test": "npm run build && xvfb-run -a node test/poc-verify.mjs",
+    "test:firefox": "npm run build:firefox && npm run build:firefox:zip && xvfb-run -a node test/firefox-verify.mjs",
+    "test:all": "npm run test && npm run test:firefox",
     "postinstall": "wxt prepare"
   },
   "devDependencies": {
