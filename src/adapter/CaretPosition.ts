@@ -1,3 +1,7 @@
+import { isInputElement, isTextAreaElement, isSelectableInput } from './TextInserter';
+
+export { isInputElement, isTextAreaElement, isSelectableInput };
+
 export interface CaretRect {
   x: number;
   y: number;
@@ -7,13 +11,17 @@ export interface CaretRect {
 let measureCanvas: HTMLCanvasElement | null = null;
 
 function getTextWidth(text: string, font: string): number {
-  if (!measureCanvas) {
-    measureCanvas = document.createElement('canvas');
+  try {
+    if (!measureCanvas) {
+      measureCanvas = document.createElement('canvas');
+    }
+    const ctx = typeof measureCanvas?.getContext === 'function' ? measureCanvas.getContext('2d') : null;
+    if (!ctx) return text.length * 8;
+    ctx.font = font;
+    return ctx.measureText(text).width;
+  } catch {
+    return text.length * 8;
   }
-  const ctx = measureCanvas.getContext('2d');
-  if (!ctx) return text.length * 8;
-  ctx.font = font;
-  return ctx.measureText(text).width;
 }
 
 /**
@@ -25,7 +33,10 @@ export function getActiveCaretCoordinates(target?: Element | null): CaretRect | 
 
   // 1. Check Monaco Editor:
   // Monaco renders its cursor in `.monaco-editor .cursors-layer .cursor`
-  const monacoEditor = active.closest('.monaco-editor') || document.querySelector('.monaco-editor.focused');
+  const monacoEditor =
+    typeof active.closest === 'function'
+      ? active.closest('.monaco-editor') || document.querySelector('.monaco-editor.focused')
+      : document.querySelector('.monaco-editor.focused');
   if (monacoEditor) {
     const cursor = monacoEditor.querySelector('.cursors-layer .cursor') as HTMLElement | null;
     if (cursor) {
@@ -41,30 +52,49 @@ export function getActiveCaretCoordinates(target?: Element | null): CaretRect | 
   }
 
   // 2. Standard HTMLInputElement (single-line)
-  if (active instanceof HTMLInputElement) {
-    const rect = active.getBoundingClientRect();
-    const computed = window.getComputedStyle(active);
-    const paddingLeft = parseFloat(computed.paddingLeft) || 0;
-    const borderLeft = parseFloat(computed.borderLeftWidth) || 0;
-    const font = computed.font || `${computed.fontSize} ${computed.fontFamily}`;
+  if (isInputElement(active)) {
+    try {
+      const rect = active.getBoundingClientRect();
+      const computed = window.getComputedStyle(active);
+      const paddingLeft = parseFloat(computed.paddingLeft) || 0;
+      const borderLeft = parseFloat(computed.borderLeftWidth) || 0;
+      const font = computed.font || `${computed.fontSize} ${computed.fontFamily}`;
 
-    const textBeforeCaret = active.value.substring(0, active.selectionEnd ?? active.value.length);
-    const textWidth = getTextWidth(textBeforeCaret, font);
+      let selectionEnd: number | null = null;
+      try {
+        if (isSelectableInput(active)) {
+          selectionEnd = active.selectionEnd;
+        }
+      } catch {
+        selectionEnd = null;
+      }
 
-    const caretX = rect.left + borderLeft + paddingLeft + textWidth - active.scrollLeft;
-    // Clamp inside element bounding box
-    const clampedX = Math.max(rect.left + borderLeft, Math.min(caretX, rect.right));
-    const caretHeight = parseFloat(computed.fontSize) * 1.2 || 18;
+      const pos = selectionEnd ?? (active.value?.length ?? 0);
+      const textBeforeCaret = (active.value ?? '').substring(0, pos);
+      const textWidth = getTextWidth(textBeforeCaret, font);
 
-    return {
-      x: clampedX,
-      y: rect.bottom,
-      height: caretHeight,
-    };
+      const caretX = rect.left + borderLeft + paddingLeft + textWidth - (active.scrollLeft || 0);
+      // Clamp inside element bounding box
+      const clampedX = Math.max(rect.left + borderLeft, Math.min(caretX, rect.right));
+      const caretHeight = parseFloat(computed.fontSize) * 1.2 || 18;
+
+      return {
+        x: clampedX,
+        y: rect.bottom,
+        height: caretHeight,
+      };
+    } catch {
+      const rect = active.getBoundingClientRect();
+      return {
+        x: rect.left,
+        y: rect.bottom,
+        height: 18,
+      };
+    }
   }
 
   // 3. Standard HTMLTextAreaElement (multi-line)
-  if (active instanceof HTMLTextAreaElement) {
+  if (isTextAreaElement(active)) {
     const rect = active.getBoundingClientRect();
     const computed = window.getComputedStyle(active);
 
@@ -95,24 +125,35 @@ export function getActiveCaretCoordinates(target?: Element | null): CaretRect | 
       const lineHeight = isNaN(parsedLineHeight) ? (parseFloat(computed.fontSize) * 1.2 || 18) : parsedLineHeight;
       mirror.style.lineHeight = `${lineHeight}px`;
 
-      const pos = active.selectionEnd ?? active.value.length;
-      mirror.textContent = active.value.substring(0, pos);
+      let pos: number;
+      try {
+        pos = active.selectionEnd ?? (active.value?.length ?? 0);
+      } catch {
+        pos = active.value?.length ?? 0;
+      }
+      mirror.textContent = (active.value ?? '').substring(0, pos);
 
       const span = document.createElement('span');
-      span.textContent = active.value.substring(pos) || '.';
+      span.textContent = (active.value ?? '').substring(pos) || '.';
       mirror.appendChild(span);
 
       document.body.appendChild(mirror);
-
-      const caretOffsetLeft = span.offsetLeft;
-      const caretOffsetTop = span.offsetTop;
-      document.body.removeChild(mirror);
+      let caretOffsetLeft = 0;
+      let caretOffsetTop = 0;
+      try {
+        caretOffsetLeft = span.offsetLeft;
+        caretOffsetTop = span.offsetTop;
+      } finally {
+        if (mirror.parentNode) {
+          mirror.parentNode.removeChild(mirror);
+        }
+      }
 
       const borderLeft = parseFloat(computed.borderLeftWidth) || 0;
       const borderTop = parseFloat(computed.borderTopWidth) || 0;
 
-      const x = rect.left + borderLeft + caretOffsetLeft - active.scrollLeft;
-      const y = rect.top + borderTop + caretOffsetTop - active.scrollTop + lineHeight;
+      const x = rect.left + borderLeft + caretOffsetLeft - (active.scrollLeft || 0);
+      const y = rect.top + borderTop + caretOffsetTop - (active.scrollTop || 0) + lineHeight;
 
       if (!isNaN(x) && !isNaN(y)) {
         return {
