@@ -119,15 +119,24 @@ export class FloatingHUD {
     this.shadow.appendChild(this.container);
 
     const append = () => {
-      if (document.body && !this.host?.parentElement) {
-        document.body.appendChild(this.host!);
-      }
+      this.ensureMount();
     };
 
     if (document.body) {
       append();
     } else {
       document.addEventListener('DOMContentLoaded', append, { once: true });
+    }
+
+    document.addEventListener('fullscreenchange', () => this.ensureMount());
+    document.addEventListener('webkitfullscreenchange', () => this.ensureMount());
+  }
+
+  private ensureMount() {
+    if (!this.host) return;
+    const targetParent = document.fullscreenElement || document.body || document.documentElement;
+    if (targetParent && this.host.parentElement !== targetParent) {
+      targetParent.appendChild(this.host);
     }
   }
 
@@ -137,9 +146,7 @@ export class FloatingHUD {
     }
     if (!this.container) return;
 
-    if (!this.host?.parentElement && document.body) {
-      document.body.appendChild(this.host!);
-    }
+    this.ensureMount();
 
     this.badgeEl!.textContent = state.mode;
     this.preeditEl!.textContent = state.preedit || '';
@@ -152,8 +159,11 @@ export class FloatingHUD {
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
 
-    let posX = Math.max(8, Math.min(state.x, viewportWidth - hudWidth - 16));
-    let posY = Math.max(8, Math.min(state.y, viewportHeight - hudHeight - 16));
+    const x = isNaN(state.x) ? 20 : state.x;
+    const y = isNaN(state.y) ? viewportHeight - 50 : state.y;
+
+    let posX = Math.max(8, Math.min(x, viewportWidth - hudWidth - 16));
+    let posY = Math.max(8, Math.min(y, viewportHeight - hudHeight - 16));
 
     this.container.style.left = `${posX}px`;
     this.container.style.top = `${posY}px`;

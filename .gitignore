@@ -28,3 +28,4 @@ web-ext.config.ts
 # Downloaded test browser & test artifacts
 chrome/
 poc-screenshot.png
+.browser-profile/
