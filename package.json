@@ -13,6 +13,7 @@
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "compile": "tsc --noEmit",
+    "test:unit": "vitest run",
     "test": "npm run build && xvfb-run -a node test/poc-verify.mjs",
     "postinstall": "wxt prepare"
   },
@@ -22,6 +23,7 @@
     "puppeteer-core": "^25.10.0",
     "typescript": "^5.9.3",
     "vite": "^8.1.5",
+    "vitest": "^5.0.0",
     "web-ext": "^10.5.0",
     "wxt": "^0.21.3"
   },
