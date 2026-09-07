@@ -420,6 +420,13 @@ describe("JisyoParser", () => {
             expect(parsed!.candidates[0]!.annotation).toBe("C/C++言語");
         });
 
+        it("unescapes backslashes in annotations", () => {
+            const line = 'test /candidate;path\\\\to\\\\file/';
+            const parsed = parseJisyoLine(line);
+            expect(parsed).toBeDefined();
+            expect(parsed!.candidates[0]!.annotation).toBe("path\\to\\file");
+        });
+
         it("formats multiple dictionary entries to text", () => {
             const entries = new Map<string, Candidate[]>([
                 ["とうきょう", [new Candidate("東京")]],

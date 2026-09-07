@@ -72,7 +72,7 @@ export function unescapeAnnotation(annot: string): string {
             .replace(/\\"/g, '"')
             .replace(/\\\\/g, "\\");
     }
-    return annot.replace(/\\057/g, "/").replace(/\\073/g, ";");
+    return annot.replace(/\\057/g, "/").replace(/\\073/g, ";").replace(/\\\\/g, "\\");
 }
 
 /**

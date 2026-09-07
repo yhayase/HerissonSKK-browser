@@ -141,7 +141,7 @@ const kanaToAlphabet = new Map<string, string>([
     ["ベ", "b"],
     ["ペ", "p"],
     ["ホ", "h"],
-    ["ぼ", "b"],
+    ["ボ", "b"],
     ["ポ", "p"],
     ["マ", "m"],
     ["ミ", "m"],

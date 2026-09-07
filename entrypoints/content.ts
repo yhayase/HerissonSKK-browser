@@ -3,10 +3,11 @@ import { HiraganaMode } from '@/src/core/skk/input-mode/HiraganaMode';
 import { AsciiMode } from '@/src/core/skk/input-mode/AsciiMode';
 import { RegistrationMode } from '@/src/core/skk/input-mode/henkan/RegistrationMode';
 import { CompositeJisyoProvider } from '@/src/core/skk/jisyo/CompositeJisyoProvider';
-import { IndexedDbJisyoStore } from '@/src/storage/jisyo/IndexedDbJisyoStore';
-import { IndexedDbUserStore } from '@/src/storage/user-jisyo/IndexedDbUserStore';
-import { BroadcastChannelSync } from '@/src/storage/sync/BroadcastChannelSync';
-import { DictionaryLoader } from '@/src/storage/jisyo/DictionaryLoader';
+import type { IJisyoStorage, IUserJisyoStorage } from '@/src/core/skk/jisyo/IJisyoStorage';
+import { RemoteJisyoStore } from '@/src/storage/jisyo/RemoteJisyoStore';
+import { RemoteUserStore } from '@/src/storage/user-jisyo/RemoteUserStore';
+import { RuntimeMessageSync } from '@/src/storage/sync/RuntimeMessageSync';
+import { isRuntimeAvailable, sendRuntimeMessage } from '@/src/storage/rpc/runtimeClient';
 import { FloatingHUD } from '@/src/hud/FloatingHUD';
 import { isInputElement, isTextAreaElement } from '@/src/adapter/TextInserter';
 
@@ -14,16 +15,16 @@ export class SkkContentEngine {
   public adapter: BrowserEditorAdapter;
   public hud: FloatingHUD;
   public jisyoProvider: CompositeJisyoProvider;
-  public systemStore: IndexedDbJisyoStore;
-  public userStore: IndexedDbUserStore;
-  public syncNotifier: BroadcastChannelSync;
+  public systemStore: IJisyoStorage;
+  public userStore: IUserJisyoStorage;
+  public syncNotifier: RuntimeMessageSync;
   public isInitializedPromise: Promise<void>;
 
   constructor() {
     this.hud = new FloatingHUD();
-    this.systemStore = new IndexedDbJisyoStore();
-    this.userStore = new IndexedDbUserStore();
-    this.syncNotifier = new BroadcastChannelSync();
+    this.syncNotifier = new RuntimeMessageSync();
+    this.systemStore = new RemoteJisyoStore();
+    this.userStore = new RemoteUserStore({ senderId: this.syncNotifier.getSenderId() });
 
     this.jisyoProvider = new CompositeJisyoProvider(
       this.userStore,
@@ -42,10 +43,13 @@ export class SkkContentEngine {
   }
 
   public async initDictionary(): Promise<void> {
+    if (!isRuntimeAvailable()) {
+      return;
+    }
     try {
-      await DictionaryLoader.ensureInitialized(this.systemStore);
+      await sendRuntimeMessage({ type: 'SKK_WAIT_READY' });
     } catch (err) {
-      console.error('[SKK] DictionaryLoader initialization error:', err);
+      console.warn('[SKK] Background dictionary readiness ping error:', err);
     }
   }
 
