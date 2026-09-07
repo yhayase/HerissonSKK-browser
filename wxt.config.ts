@@ -6,5 +6,11 @@ export default defineConfig({
     name: 'SKK Browser Extension',
     description: 'SKK Input Method Extension for browsers and VS Code for Web',
     permissions: ['storage'],
+    web_accessible_resources: [
+      {
+        resources: ['dict/*', 'test.html'],
+        matches: ['<all_urls>'],
+      },
+    ],
   },
 });
