@@ -1,0 +1,312 @@
+import type { IJisyoProvider } from "./IJisyoProvider";
+import type { IJisyoStorage, IUserJisyoStorage } from "./IJisyoStorage";
+import { Candidate } from "./candidate";
+import { Entry } from "./entry";
+
+/**
+ * Supported sync event types for user dictionary mutations.
+ */
+export type UserJisyoSyncEventType =
+    | "CANDIDATE_SAVED"
+    | "CANDIDATE_REORDERED"
+    | "CANDIDATE_DELETED"
+    | "MUTATED";
+
+/**
+ * Event payload structure for user dictionary sync notifications.
+ */
+export interface IUserJisyoSyncEvent {
+    type?: UserJisyoSyncEventType;
+    key?: string;
+    candidate?: { word: string; annotation?: string };
+    selectedIndex?: number;
+    senderId?: string;
+}
+
+/**
+ * Abstract sync notifier interface to keep core engine environment-agnostic.
+ */
+export interface IUserJisyoSyncNotifier {
+    broadcastMutation(event?: IUserJisyoSyncEvent): void;
+    onRemoteMutation(handler: (event: IUserJisyoSyncEvent) => void): () => void;
+}
+
+/**
+ * Composite dictionary provider that combines:
+ * 1. User dictionary (read/write, persisted in IUserJisyoStorage, LRU candidate learning)
+ * 2. System dictionaries (read-only, IJisyoStorage instances)
+ * 3. Multi-tab / cross-window synchronization via IUserJisyoSyncNotifier
+ *
+ * Adheres to standard SKK behavior:
+ * - User dictionary candidates take precedence over system dictionary candidates.
+ * - Duplicate candidates are deduplicated preserving the first occurrence.
+ * - Selecting any candidate promotes it to the front of the user dictionary (LRU / MRU learning).
+ */
+export class CompositeJisyoProvider implements IJisyoProvider {
+    private readonly userStorage: IUserJisyoStorage;
+    private readonly systemStorages: IJisyoStorage[];
+    private readonly syncNotifier?: IUserJisyoSyncNotifier;
+
+    private userDictionary: Map<string, Candidate[]> = new Map();
+    private isLoaded = false;
+    private loadPromise: Promise<void> | null = null;
+    private unsubscribeSync?: () => void;
+
+    constructor(
+        userStorage: IUserJisyoStorage,
+        systemStorages: IJisyoStorage[] = [],
+        syncNotifier?: IUserJisyoSyncNotifier
+    ) {
+        this.userStorage = userStorage;
+        this.systemStorages = [...systemStorages];
+        this.syncNotifier = syncNotifier;
+
+        if (this.syncNotifier) {
+            this.unsubscribeSync = this.syncNotifier.onRemoteMutation((event) => {
+                this.handleRemoteMutation(event).catch((err) => {
+                    console.error("Failed to handle remote jisyo sync mutation:", err);
+                });
+            });
+        }
+    }
+
+    /**
+     * Initializes the provider by loading the user dictionary into the in-memory cache.
+     */
+    public async init(): Promise<void> {
+        await this.ensureLoaded();
+    }
+
+    /**
+     * Ensures user entries are loaded from storage into in-memory cache.
+     * Concurrently dispatched calls share the same loading promise.
+     */
+    private async ensureLoaded(): Promise<void> {
+        if (this.isLoaded) {
+            return;
+        }
+        if (this.loadPromise) {
+            return this.loadPromise;
+        }
+
+        this.loadPromise = (async () => {
+            const entries = await this.userStorage.loadUserEntries();
+            this.userDictionary = new Map(entries);
+            this.isLoaded = true;
+        })().finally(() => {
+            this.loadPromise = null;
+        });
+
+        return this.loadPromise;
+    }
+
+    /**
+     * Handles remote mutation events from other tabs or windows.
+     */
+    private async handleRemoteMutation(event?: IUserJisyoSyncEvent): Promise<void> {
+        if (event?.type === "CANDIDATE_SAVED" && event.key && event.candidate) {
+            const list = this.userDictionary.get(event.key) ?? [];
+            const idx = list.findIndex((c) => c.word === event.candidate!.word);
+            if (idx !== -1) {
+                list.splice(idx, 1);
+            }
+            list.unshift(new Candidate(event.candidate.word, event.candidate.annotation));
+            this.userDictionary.set(event.key, list);
+            return;
+        }
+
+        if (event?.type === "CANDIDATE_DELETED" && event.key && event.candidate) {
+            const list = this.userDictionary.get(event.key);
+            if (list) {
+                const idx = list.findIndex((c) => c.word === event.candidate!.word);
+                if (idx !== -1) {
+                    list.splice(idx, 1);
+                }
+                if (list.length === 0) {
+                    this.userDictionary.delete(event.key);
+                }
+            }
+            return;
+        }
+
+        // Full reload fallback
+        const entries = await this.userStorage.loadUserEntries();
+        this.userDictionary = new Map(entries);
+        this.isLoaded = true;
+    }
+
+    /**
+     * Look up candidates for a given key.
+     * Combines user candidates and system dictionary candidates.
+     * User candidates come first. Duplicates are deduplicated preserving the first occurrence.
+     *
+     * @param key The dictionary key to look up
+     * @returns Combined Entry or undefined if none found
+     */
+    public async lookupCandidates(key: string): Promise<Entry | undefined> {
+        await this.ensureLoaded();
+
+        const userCands = this.userDictionary.get(key) ?? [];
+
+        // Query all system storages
+        const systemCands: Candidate[] = [];
+        for (const storage of this.systemStorages) {
+            try {
+                const entry = await storage.lookup(key);
+                if (entry) {
+                    systemCands.push(...entry.getCandidateList());
+                }
+            } catch (err) {
+                console.error(`Error querying system storage for "${key}":`, err);
+            }
+        }
+
+        // Combine: user candidates first, then system candidates
+        const seenWords = new Set<string>();
+        const combined: Candidate[] = [];
+
+        for (const cand of userCands) {
+            if (!seenWords.has(cand.word)) {
+                seenWords.add(cand.word);
+                combined.push(cand);
+            }
+        }
+
+        for (const cand of systemCands) {
+            if (!seenWords.has(cand.word)) {
+                seenWords.add(cand.word);
+                combined.push(cand);
+            }
+        }
+
+        if (combined.length === 0) {
+            return undefined;
+        }
+
+        return new Entry(key, combined, "");
+    }
+
+    /**
+     * Registers a candidate for a given key.
+     * Promotes or adds the candidate to the front of the user dictionary in cache and persists to storage.
+     * Broadcasts sync notification.
+     *
+     * @param key The dictionary key
+     * @param candidate The candidate to register
+     * @returns True if successful
+     */
+    public async registerCandidate(key: string, candidate: Candidate): Promise<boolean> {
+        await this.ensureLoaded();
+
+        // Update in-memory user dictionary (unshift to front)
+        const list = this.userDictionary.get(key) ?? [];
+        const existingIdx = list.findIndex((c) => c.word === candidate.word);
+        if (existingIdx !== -1) {
+            list.splice(existingIdx, 1);
+        }
+        list.unshift(candidate);
+        this.userDictionary.set(key, list);
+
+        // Persist to user storage
+        const success = await this.userStorage.saveCandidate(key, candidate);
+
+        if (success) {
+            // Broadcast to remote tabs
+            this.syncNotifier?.broadcastMutation({
+                type: "CANDIDATE_SAVED",
+                key,
+                candidate: { word: candidate.word, annotation: candidate.annotation },
+            });
+        }
+
+        return success;
+    }
+
+    /**
+     * Reorders candidates for a key by promoting the candidate at selectedIndex to the front.
+     * If the selected candidate came from system dictionary, it is learned and registered in the user dictionary.
+     *
+     * @param key The dictionary key
+     * @param selectedIndex The index of the selected candidate
+     * @returns True if successful
+     */
+    public async reorderCandidate(key: string, selectedIndex: number): Promise<boolean> {
+        await this.ensureLoaded();
+
+        const entry = await this.lookupCandidates(key);
+        if (!entry) {
+            return false;
+        }
+
+        const candidates = entry.getCandidateList();
+        if (selectedIndex < 0 || selectedIndex >= candidates.length) {
+            return false;
+        }
+
+        const selected = candidates[selectedIndex];
+        if (!selected) {
+            return false;
+        }
+
+        return this.registerCandidate(key, selected);
+    }
+
+    /**
+     * Deletes a candidate from the user dictionary and persists the deletion.
+     * Broadcasts sync notification.
+     *
+     * @param key The dictionary key
+     * @param candidate The candidate to delete
+     * @returns True if candidate was found and deleted
+     */
+    public async deleteCandidate(key: string, candidate: Candidate): Promise<boolean> {
+        await this.ensureLoaded();
+
+        // Remove from in-memory cache
+        const list = this.userDictionary.get(key);
+        let found = false;
+        if (list) {
+            const idx = list.findIndex((c) => c.word === candidate.word);
+            if (idx !== -1) {
+                list.splice(idx, 1);
+                found = true;
+            }
+            if (list.length === 0) {
+                this.userDictionary.delete(key);
+            }
+        }
+
+        // Persist deletion
+        const success = await this.userStorage.deleteCandidate(key, candidate);
+
+        if (success) {
+            // Broadcast to remote tabs
+            this.syncNotifier?.broadcastMutation({
+                type: "CANDIDATE_DELETED",
+                key,
+                candidate: { word: candidate.word, annotation: candidate.annotation },
+            });
+        }
+
+        return found || success;
+    }
+
+    /**
+     * Returns a copy of the user dictionary map (useful for inspection or testing).
+     */
+    public getUserDictionary(): Map<string, Candidate[]> {
+        const copy = new Map<string, Candidate[]>();
+        for (const [k, v] of this.userDictionary) {
+            copy.set(k, [...v]);
+        }
+        return copy;
+    }
+
+    /**
+     * Cleans up sync listeners when the provider is destroyed.
+     */
+    public destroy(): void {
+        this.unsubscribeSync?.();
+        this.unsubscribeSync = undefined;
+    }
+}
