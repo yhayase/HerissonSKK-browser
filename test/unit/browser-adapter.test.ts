@@ -468,11 +468,23 @@ describe("BrowserEditorAdapter", () => {
             expect(adapter.getCurrentInputMode()).toBeInstanceOf(HiraganaMode);
             expect(adapter.getModeBadgeText()).toBe("かな");
 
-            // 'l' switches to Ascii
+            // 'l' switches to Ascii and automatically hides HUD
             await adapter.getCurrentInputMode().lowerAlphabetInput("l");
             expect(adapter.getCurrentInputMode()).toBeInstanceOf(AsciiMode);
             expect(adapter.getModeBadgeText()).toBe("アスキー");
-            expect(hud.getState()?.mode).toBe("アスキー");
+            expect(hud.getVisible()).toBe(false);
+        });
+
+        it("automatically hides HUD when switching to AsciiMode", () => {
+            adapter.setInputMode(HiraganaMode.getInstance());
+            expect(hud.getVisible()).toBe(true);
+
+            adapter.setInputMode(AsciiMode.getInstance());
+            expect(hud.getVisible()).toBe(false);
+
+            // updateHUD directly in AsciiMode keeps HUD hidden
+            adapter.updateHUD();
+            expect(hud.getVisible()).toBe(false);
         });
     });
 
@@ -796,6 +808,47 @@ describe("BrowserEditorAdapter", () => {
             mockElement.selectionEnd = 3;
 
             expect(adapter.isInMidashigo()).toBe(false);
+            const res = await adapter.deleteLeft();
+            expect(res).toBe(DeleteLeftResult.otherCharacterDeleted);
+            expect(mockElement.value).toBe("あい");
+        });
+
+        it("tries document.execCommand('delete', false) first before falling back to value slicing", async () => {
+            let execCommandCalled = false;
+            let commandArg = "";
+            (document as any).execCommand = (cmd: string, ui: boolean) => {
+                execCommandCalled = true;
+                commandArg = cmd;
+                return true;
+            };
+
+            mockElement.value = "あいう";
+            const res = await adapter.deleteLeft();
+            expect(execCommandCalled).toBe(true);
+            expect(commandArg).toBe("delete");
+            expect(res).toBe(DeleteLeftResult.otherCharacterDeleted);
+            // mockElement.value is preserved and not altered by fallback slice
+            expect(mockElement.value).toBe("あいう");
+        });
+
+        it("focuses target element before execCommand if document.activeElement is not target", async () => {
+            let focused = false;
+            mockElement.focus = () => {
+                focused = true;
+            };
+            (document as any).activeElement = null;
+            (document as any).execCommand = () => true;
+
+            await adapter.deleteLeft();
+            expect(focused).toBe(true);
+        });
+
+        it("falls back to target.value slice when document.execCommand returns false", async () => {
+            (document as any).execCommand = () => false;
+            mockElement.value = "あいう";
+            mockElement.selectionStart = 3;
+            mockElement.selectionEnd = 3;
+
             const res = await adapter.deleteLeft();
             expect(res).toBe(DeleteLeftResult.otherCharacterDeleted);
             expect(mockElement.value).toBe("あい");

@@ -419,6 +419,11 @@ export class BrowserEditorAdapter implements IEditor {
     }
 
     public updateHUD(): void {
+        if (this.currentInputMode instanceof AsciiMode) {
+            this.hud.hide();
+            return;
+        }
+
         const target = this.getTargetElement();
         const coords = typeof document !== "undefined" ? getActiveCaretCoordinates(target) : null;
         const viewportHeight =
@@ -521,6 +526,25 @@ export class BrowserEditorAdapter implements IEditor {
 
     private deleteFromDom(): boolean {
         const target = this.getTargetElement();
+        if (
+            target &&
+            typeof (target as HTMLElement).focus === "function" &&
+            typeof document !== "undefined" &&
+            document.activeElement !== target
+        ) {
+            try {
+                (target as HTMLElement).focus();
+            } catch {}
+        }
+
+        if (typeof document !== "undefined" && typeof document.execCommand === "function") {
+            try {
+                if (document.execCommand("delete", false)) {
+                    return true;
+                }
+            } catch {}
+        }
+
         if (isInputElement(target) || isTextAreaElement(target)) {
             try {
                 let start: number | null = null;
@@ -569,11 +593,6 @@ export class BrowserEditorAdapter implements IEditor {
             }
         }
 
-        if (typeof document !== "undefined") {
-            try {
-                return document.execCommand("delete", false);
-            } catch {}
-        }
         return false;
     }
 }
