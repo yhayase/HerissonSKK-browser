@@ -17,9 +17,10 @@ flowchart TD
     Phase2["Phase 2: src/core/ に独立層として移植<br>(ステートマシン・ローマ字エンジンのブラウザ適応)"]
     Phase3["Phase 3: 辞書モデル・検索エンジンの移植<br>(IndexedDB 連携・標準辞書・Firefox E2E)"]
     Phase31["Phase 3.1: JSON 辞書ローダー & ストレージフォーマット検討<br>(skk-dict/jisyo 形式対応・データ構造最適化)"]
+    Phase32["Phase 3.2: コアエンジンの堅牢性検証 & ファジング<br>(fast-check / プロパティベースドテスト・自己修復性)"]
     Phase4["Phase 4: 共通ライブラリとして抽出・独立パッケージ化<br>(@yhayase/skk-core を切り出し、skk-vscode と双方で共有)"]
 
-    Phase2 --> Phase3 --> Phase31 --> Phase4
+    Phase2 --> Phase3 --> Phase31 --> Phase32 --> Phase4
 ```
 
 1. **ブラウザ拡張内に独立層（`src/core/`）として先行移植（Phase 2〜3）**:
@@ -39,6 +40,7 @@ flowchart TD
 | **Phase 2** | **SKK コアエンジン移植 & ブラウザ適応** | **完了 ✅** | `src/core/` への純粋 TypeScript 移植（ローマ字変換、各入力モード、接頭辞/接尾辞）、DOM 非汚染な `BrowserEditorAdapter`、単体テスト(137件) |
 | **Phase 3** | **辞書ストレージ & 検索エンジン (IndexedDB)・Firefox E2E** | **完了 ✅ (PRレビュー中)** | 標準 SKK 辞書パーサー、大容量辞書の IndexedDB 格納、高速前方一致検索、学習・個人辞書同期、再帰辞書登録、Firefox (Gecko) ヘッドレス E2E 自動検証(全10件パス) |
 | **Phase 3.1** | **JSON 辞書ローダー & IndexedDB データフォーマット検討** | **次フェーズ 🚀** | [skk-dict/jisyo](https://github.com/skk-dict/jisyo) JSON 辞書パーサー、IndexedDB 格納フォーマットの比較検討（統一キー vs 分割構造等、事前固定せず性能/容量/検索要件から評価）、スキーマ移行整備 |
+| **Phase 3.2** | **コア堅牢性検証 & プロパティベースドテスト（ファジング）** | 未着手 ⏳ | Vitest + fast-check によるランダムキー入力シーケンス生成、状態マシンの自己修復性検証、最小反例（Shrink）特定機構整備 |
 | **Phase 4** | **SKK コアエンジンの共通ライブラリ抽出** | 未着手 ⏳ | `src/core/` を独立パッケージ（`@yhayase/skk-core` 等）として切り出し、`skk-vscode` とブラウザ拡張の双方で共通利用 |
 | **Phase 5** | **UI/UX 改善 & 候補選択メニュー** | 未着手 ⏳ | 複数候補一覧メニュー（1〜9 選択、Space 送り、x 戻り）、ビューポート端へのクランプ、ダーク/ライトテーマ追従 |
 | **Phase 6** | **設定画面・ドメイン制御 & ストア公開準備** | 未着手 ⏳ | ポップアップ UI（有効/無効・除外サイト）、オプション画面（キーバインド・辞書管理）、Chrome/Firefox パッケージング |
@@ -137,6 +139,23 @@ flowchart TD
 - **完了条件**:
   - `skk-dict/jisyo` の公式 JSON 辞書を正常にインポート・変換できること。
   - データフォーマットの比較検証結果が文書化され、合意された構造のもとで全単体テスト・E2E テストが継続してパスすること。
+
+---
+
+### Phase 3.2: コアエンジンの堅牢性検証 & プロパティベースドテスト（ファジング）（未着手 ⏳）
+
+- **目的**: 状態遷移マシン（`IInputMode` / `AbstractKanaMode` / `MidashigoMode` / `InlineHenkanMode` / `MenuHenkanMode` / `RegistrationMode`）に対し、擬似ランダムな打鍵シーケンスを大量に投入するプロパティベースドテスト（ファジング）を実施し、不正な状態遷移、未捕捉例外、内部状態のデッドロックが存在しない自己修復性を実証する。
+- **タスク一覧**:
+  1. **Vitest + `fast-check` によるファジング基盤の構築**:
+     - `fast-check` を導入し、日常の `npm run test:unit` とは分離した `npm run test:fuzz` スクリプトを整備。
+     - ランダム打鍵ジェネレータ（英数記号、Shift修飾、各種制御キー `Enter`, `Backspace`, `Space`, `Ctrl+j`, `Ctrl+g`）の実装。
+  2. **ステートマシンの不変条件（Invariants）検証**:
+     - 任意のキーシーケンス投入後、`Ctrl+j` または `Ctrl+g` を入力した際に、必ず初期の平仮名確定モード（`KakuteiMode`）に復帰し、未消化ローマ字バッファや未確定文字列が完全に消去されることの自動検証。
+     - 例外スローや `NaN`, `undefined` 参照によるハングアップが発生しないことの検証。
+  3. **不具合パターンの縮小化（Shrinking）とテストケース還元**:
+     - 縮小化アルゴリズムにより特定された最小の不具合入力シーケンスを `test/unit/` の決定論的リグレッションテストとして登録。
+- **完了条件**:
+  - 数万回のランダムシーケンス実行でステートマシンが破綻しないことが確認され、CI 用のファジング実行コマンドが整備されること。
 
 ---
 
