@@ -8,6 +8,7 @@
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",
     "start": "npm run build && node scripts/launch-browser.mjs",
+    "start:firefox": "node scripts/launch-firefox.mjs",
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
     "build:firefox:zip": "wxt zip -b firefox",
