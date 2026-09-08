@@ -442,7 +442,7 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
         return new Promise<void>((resolve, reject) => {
             const hasMeta = db.objectStoreNames.contains("system_metadata");
             const storeNames = hasMeta ? [this.storeName, "system_metadata"] : [this.storeName];
-            const tx = db.transaction(storeNames, "readwrite");
+            const tx = db.transaction(Array.from(new Set(storeNames)), "readwrite");
             const store = tx.objectStore(this.storeName);
             store.clear();
 

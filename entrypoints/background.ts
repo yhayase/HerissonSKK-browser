@@ -106,16 +106,7 @@ export default defineBackground(() => {
 
       case 'SKK_USER_SAVE': {
         const cand = new Candidate(message.candidate.word, message.candidate.annotation);
-        const success = await userStore.saveCandidate(message.key, cand);
-        if (success) {
-          await broadcastToAllTabs({
-            type: 'CANDIDATE_SAVED',
-            key: message.key,
-            candidate: { word: cand.word, annotation: cand.annotation },
-            senderId: message.senderId,
-          });
-        }
-        return success;
+        return await userStore.saveCandidate(message.key, cand);
       }
 
       case 'SKK_USER_REORDER': {
@@ -144,16 +135,7 @@ export default defineBackground(() => {
 
       case 'SKK_USER_DELETE': {
         const cand = new Candidate(message.candidate.word, message.candidate.annotation);
-        const success = await userStore.deleteCandidate(message.key, cand);
-        if (success) {
-          await broadcastToAllTabs({
-            type: 'CANDIDATE_DELETED',
-            key: message.key,
-            candidate: { word: cand.word, annotation: cand.annotation },
-            senderId: message.senderId,
-          });
-        }
-        return success;
+        return await userStore.deleteCandidate(message.key, cand);
       }
 
       case 'SKK_USER_CLEAR': {

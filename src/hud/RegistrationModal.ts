@@ -42,6 +42,10 @@ export class RegistrationModal {
     }
 
     public open(yomi: string, okuri: string, originalTarget?: IEditorTarget | null): HTMLInputElement {
+        if (RegistrationModal.activeModal && RegistrationModal.activeModal !== this) {
+            RegistrationModal.activeModal.close();
+        }
+
         this.originalTarget = originalTarget ?? null;
         this.selectionSnapshot = originalTarget ? originalTarget.saveSelection() : null;
 

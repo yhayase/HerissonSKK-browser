@@ -173,16 +173,24 @@ export class ContentEditableTarget implements IEditorTarget {
         if (sel && sel.rangeCount > 0) {
             const range = sel.getRangeAt(0);
             if (range && this.isRangeInsideElement(range)) {
-                if (range.collapsed) {
-                    if (range.startOffset > 0) {
-                        try {
+                const isCollapsed = Boolean(range.collapsed || (range.startContainer === range.endContainer && range.startOffset === range.endOffset));
+                if (isCollapsed) {
+                    if (range.startOffset === 0) {
+                        return false;
+                    }
+                    try {
+                        if (typeof range.setStart === "function") {
                             range.setStart(range.startContainer, range.startOffset - 1);
-                            if (typeof range.deleteContents === "function") {
-                                range.deleteContents();
-                            }
-                            this.dispatchInputEvent("deleteContentBackward");
-                            return true;
-                        } catch {}
+                        } else {
+                            (range as any).startOffset = Math.max(0, range.startOffset - 1);
+                        }
+                        if (typeof range.deleteContents === "function") {
+                            range.deleteContents();
+                        }
+                        this.dispatchInputEvent("deleteContentBackward");
+                        return true;
+                    } catch {
+                        return false;
                     }
                 } else {
                     if (typeof range.deleteContents === "function") {
