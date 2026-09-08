@@ -667,21 +667,7 @@ export class RegistrationMode extends AbstractInputMode implements IInputMode {
     }
 
     public async cancelRegistration(): Promise<void> {
-        if (this.parentRegistration) {
-            // Nested: pop stack without inserting
-            this.outerEditor.setInputMode(this.parentRegistration);
-            await this.outerEditor.notifyModeInternalStateChanged();
-        } else {
-            // Root: restore previous mode without inserting
-            if (this.previousMode instanceof AbstractKanaMode) {
-                this.previousMode.setHenkanMode(KakuteiMode.create(this.previousMode, this.outerEditor));
-                await this.previousMode.reset();
-            }
-            this.outerEditor.setInputMode(this.previousMode);
-            await this.outerEditor.clearMidashigo();
-            await this.outerEditor.clearCandidate();
-            await this.outerEditor.notifyModeInternalStateChanged();
-        }
+        await this.abortRegistration();
     }
 
     public override getActiveKeys(): Set<string> {

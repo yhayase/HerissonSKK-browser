@@ -571,6 +571,151 @@ describe("SKK Registration & State Transitions Specification (docs/specs/registr
             expect(adapter.getCurrentInputMode()).toBeInstanceOf(HiraganaMode);
             expect(mockElement.value).toBe("");
         });
+
+        it("TC-CTRLG-03: Ctrl+g in RegistrationMode when entered from MidashigoMode restores MidashigoMode with midashigo text intact", async () => {
+            // CRITICAL SPEC (SPEC-KEY-CTRLG):
+            // When user is in MidashigoMode (e.g. "▽かわさき") and registration opens (no candidate exists),
+            // pressing Ctrl+g with empty mini-buffer MUST restore MidashigoMode with midashigoText intact!
+            // It MUST NOT destructively clear the midashigo text or reset to KakuteiMode!
+            const hMode = HiraganaMode.getInstance();
+            adapter.setInputMode(hMode);
+
+            // Type "▽かわさき"
+            await hMode.upperAlphabetInput("K");
+            await hMode.lowerAlphabetInput("a");
+            await hMode.lowerAlphabetInput("w");
+            await hMode.lowerAlphabetInput("a");
+            await hMode.lowerAlphabetInput("s");
+            await hMode.lowerAlphabetInput("a");
+            await hMode.lowerAlphabetInput("k");
+            await hMode.lowerAlphabetInput("i");
+
+            expect(adapter.isInMidashigo()).toBe(true);
+            expect(adapter.extractMidashigo()).toBe("かわさき");
+
+            // Space triggers search -> no candidate -> opens RegistrationMode
+            await hMode.spaceInput();
+            expect(adapter.getCurrentInputMode()).toBeInstanceOf(RegistrationMode);
+            const regMode = adapter.getCurrentInputMode() as RegistrationMode;
+            expect(regMode.getYomi()).toBe("かわさき");
+
+            // Press Ctrl+g in RegistrationMode with empty mini-buffer
+            await regMode.ctrlGInput();
+
+            // CRITICAL SPEC: MidashigoMode MUST be restored with "かわさき" intact!
+            expect(adapter.getCurrentInputMode()).toBe(hMode);
+            expect(hMode.getHenkanMode()).toBeInstanceOf(MidashigoMode);
+            expect(adapter.isInMidashigo()).toBe(true);
+            expect(adapter.extractMidashigo()).toBe("かわさき");
+            expect(adapter.getModeBadgeText()).toBe("かな");
+            expect(mockElement.value).toBe("");
+        });
+
+        it("TC-CTRLG-04: Stepwise cancellation: second Ctrl+g clears restored MidashigoMode to KakuteiMode", async () => {
+            // Standard SKK Stepwise Cancellation Contract:
+            // 1st Ctrl+g (in RegistrationMode): cancels registration dialog -> restores MidashigoMode with "▽かわさき"
+            // 2nd Ctrl+g (in MidashigoMode): cancels midashigo -> restores KakuteiMode
+            const hMode = HiraganaMode.getInstance();
+            adapter.setInputMode(hMode);
+
+            await hMode.upperAlphabetInput("K");
+            await hMode.lowerAlphabetInput("a");
+            await hMode.spaceInput(); // opens RegistrationMode for "か"
+
+            const regMode = adapter.getCurrentInputMode() as RegistrationMode;
+            expect(regMode).toBeInstanceOf(RegistrationMode);
+
+            // 1st Ctrl+g: returns to MidashigoMode with "か" intact
+            await regMode.ctrlGInput();
+            expect(adapter.getCurrentInputMode()).toBe(hMode);
+            expect(adapter.isInMidashigo()).toBe(true);
+            expect(adapter.extractMidashigo()).toBe("か");
+
+            // 2nd Ctrl+g: clears midashigo to KakuteiMode
+            await hMode.ctrlGInput();
+            expect(adapter.isInMidashigo()).toBe(false);
+            expect(adapter.extractMidashigo()).toBeUndefined();
+            expect(hMode.getHenkanMode()).toBeInstanceOf(KakuteiMode);
+            expect(mockElement.value).toBe("");
+        });
+
+        it("TC-CTRLG-05: Ctrl+g in RegistrationMode when entered from InlineHenkanMode restores last candidate", async () => {
+            // When entered from InlineHenkanMode after candidates are exhausted,
+            // Ctrl+g cancels registration and restores InlineHenkanMode with last candidate!
+            (jisyoProvider as any).dictionary.delete("てすと");
+            await jisyoProvider.registerCandidate("てすと", new Candidate("候補A"));
+            await jisyoProvider.registerCandidate("てすと", new Candidate("候補B"));
+
+            const hMode = HiraganaMode.getInstance();
+            adapter.setInputMode(hMode);
+
+            await hMode.upperAlphabetInput("T");
+            await hMode.lowerAlphabetInput("e");
+            await hMode.lowerAlphabetInput("s");
+            await hMode.lowerAlphabetInput("u");
+            await hMode.lowerAlphabetInput("t");
+            await hMode.lowerAlphabetInput("o");
+
+            await hMode.spaceInput(); // 1st candidate
+            await hMode.spaceInput(); // 2nd candidate (last)
+            const lastCand = adapter.getCurrentCandidate()?.word;
+            expect(lastCand).toBeDefined();
+
+            await hMode.spaceInput(); // exhausts -> RegistrationMode
+
+            expect(adapter.getCurrentInputMode()).toBeInstanceOf(RegistrationMode);
+            const regMode = adapter.getCurrentInputMode() as RegistrationMode;
+
+            // Ctrl+g cancels registration
+            await regMode.ctrlGInput();
+
+            // Restores InlineHenkanMode displaying last candidate
+            expect(adapter.getCurrentInputMode()).toBe(hMode);
+            expect(hMode.getHenkanMode()).toBeInstanceOf(InlineHenkanMode);
+            expect(adapter.getCurrentCandidate()?.word).toBe(lastCand);
+        });
+
+        it("TC-CTRLG-06: recursive registration cancel (depth 2 -> depth 1) preserves parent uncommitted composition", async () => {
+            // When parent (depth 1) was composing (e.g. midashigo "▽たんご") and opened nested registration (depth 2),
+            // canceling depth 2 with Ctrl+g MUST preserve parent's midashigo ("▽たんご") intact!
+            await adapter.openRegistrationEditor("ふくごう", "");
+            const parentReg = adapter.getCurrentInputMode() as RegistrationMode;
+            const parentMb = parentReg.getMiniBufferEditor();
+
+            // Parent types midashigo "▽たんご"
+            await parentReg.upperAlphabetInput("T");
+            await parentReg.lowerAlphabetInput("a");
+            await parentReg.lowerAlphabetInput("n");
+            await parentReg.lowerAlphabetInput("g");
+            await parentReg.lowerAlphabetInput("o");
+
+            expect(parentMb.isInMidashigo()).toBe(true);
+            expect(parentMb.getMidashigoText()).toBe("たんご");
+
+            // Opens nested registration (depth 2)
+            await parentMb.openRegistrationEditor("たんご", "");
+            const childReg = adapter.getCurrentInputMode() as RegistrationMode;
+            expect(childReg.isNested()).toBe(true);
+
+            // Cancel child registration with Ctrl+g
+            await childReg.ctrlGInput();
+
+            // Returned to parent registration
+            expect(adapter.getCurrentInputMode()).toBe(parentReg);
+
+            // CRITICAL SPEC: Parent uncommitted midashigo MUST be preserved!
+            expect(parentMb.isInMidashigo()).toBe(true);
+            expect(parentMb.getMidashigoText()).toBe("たんご");
+
+            // Stepwise: Ctrl+g in parent cancels parent midashigo
+            await parentReg.ctrlGInput();
+            expect(parentMb.isInMidashigo()).toBe(false);
+            expect(parentMb.getMidashigoText()).toBe("");
+
+            // Another Ctrl+g cancels parent registration
+            await parentReg.ctrlGInput();
+            expect(adapter.getCurrentInputMode()).toBeInstanceOf(HiraganaMode);
+        });
     });
 
     // -------------------------------------------------------------------------

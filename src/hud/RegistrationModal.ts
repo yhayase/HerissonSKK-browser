@@ -5,6 +5,8 @@ interface RegistrationSession {
     yomi: string;
     okuri: string;
     inputElement: HTMLInputElement;
+    savedSelectionStart?: number;
+    savedSelectionEnd?: number;
 }
 
 export const MAX_REGISTRATION_DEPTH = 5;
@@ -20,11 +22,23 @@ export class RegistrationModal {
     private badgeEl: HTMLElement | null = null;
     private promptEl: HTMLElement | null = null;
     private inputContainerEl: HTMLElement | null = null;
+    private statusLineEl: HTMLElement | null = null;
+    private modeBadgeEl: HTMLElement | null = null;
+    private preeditEl: HTMLElement | null = null;
+    private candidateEl: HTMLElement | null = null;
+    private statusTextEl: HTMLElement | null = null;
 
     constructor(private shadowRoot: ShadowRoot) {}
 
     public static getActiveModal(): RegistrationModal | null {
         return RegistrationModal.activeModal;
+    }
+
+    public static resetActiveModal(): void {
+        if (RegistrationModal.activeModal) {
+            RegistrationModal.activeModal.close();
+            RegistrationModal.activeModal = null;
+        }
     }
 
     public open(yomi: string, okuri: string, originalTarget?: IEditorTarget | null): HTMLInputElement {
@@ -88,8 +102,51 @@ export class RegistrationModal {
             this.inputContainerEl = document.createElement("div");
             this.inputContainerEl.className = "skk-modal-input-container";
 
+            this.statusLineEl = document.createElement("div");
+            this.statusLineEl.className = "skk-modal-status-line";
+            this.statusLineEl.style.display = "flex";
+            this.statusLineEl.style.alignItems = "center";
+            this.statusLineEl.style.gap = "8px";
+            this.statusLineEl.style.fontSize = "13px";
+            this.statusLineEl.style.minHeight = "22px";
+            this.statusLineEl.style.marginTop = "2px";
+
+            this.modeBadgeEl = document.createElement("span");
+            this.modeBadgeEl.className = "skk-modal-status-mode";
+            this.modeBadgeEl.style.background = "#45475a";
+            this.modeBadgeEl.style.color = "#cdd6f4";
+            this.modeBadgeEl.style.padding = "1px 6px";
+            this.modeBadgeEl.style.borderRadius = "3px";
+            this.modeBadgeEl.style.fontSize = "11px";
+            this.modeBadgeEl.style.fontWeight = "bold";
+            this.modeBadgeEl.textContent = "かな";
+
+            this.preeditEl = document.createElement("span");
+            this.preeditEl.className = "skk-modal-status-preedit";
+            this.preeditEl.style.color = "#89b4fa";
+            this.preeditEl.style.fontWeight = "bold";
+            this.preeditEl.style.display = "none";
+
+            this.candidateEl = document.createElement("span");
+            this.candidateEl.className = "skk-modal-status-candidate";
+            this.candidateEl.style.color = "#a6e3a1";
+            this.candidateEl.style.fontWeight = "bold";
+            this.candidateEl.style.display = "none";
+
+            this.statusTextEl = document.createElement("span");
+            this.statusTextEl.className = "skk-modal-status-text";
+            this.statusTextEl.style.color = "#bac2de";
+            this.statusTextEl.style.fontSize = "12px";
+            this.statusTextEl.style.display = "none";
+
+            this.statusLineEl.appendChild(this.modeBadgeEl);
+            this.statusLineEl.appendChild(this.preeditEl);
+            this.statusLineEl.appendChild(this.candidateEl);
+            this.statusLineEl.appendChild(this.statusTextEl);
+
             this.dialogEl.appendChild(headerEl);
             this.dialogEl.appendChild(this.inputContainerEl);
+            this.dialogEl.appendChild(this.statusLineEl);
             this.overlayEl.appendChild(this.dialogEl);
 
             if (this.shadowRoot && typeof this.shadowRoot.appendChild === "function") {
@@ -138,8 +195,14 @@ export class RegistrationModal {
         }
 
         const currentSession = this.sessions[this.sessions.length - 1];
-        if (currentSession && currentSession.inputElement.style) {
-            currentSession.inputElement.style.display = "none";
+        if (currentSession) {
+            try {
+                currentSession.savedSelectionStart = currentSession.inputElement.selectionStart ?? undefined;
+                currentSession.savedSelectionEnd = currentSession.inputElement.selectionEnd ?? undefined;
+            } catch {}
+            if (currentSession.inputElement.style) {
+                currentSession.inputElement.style.display = "none";
+            }
         }
 
         const depth = this.sessions.length + 1;
@@ -157,6 +220,7 @@ export class RegistrationModal {
             const stem = okuri ? yomi.replace(/[a-z]+$/, "") : yomi;
             this.promptEl.textContent = okuri ? `[${stem}*${okuri}] ` : `[${yomi}] `;
         }
+        this.updateStatus({ mode: "かな", preedit: "", candidate: "", statusText: "" });
 
         if (typeof childInput.focus === "function") {
             try {
@@ -190,6 +254,18 @@ export class RegistrationModal {
                     parentSession.inputElement.focus();
                 } catch {}
             }
+            if (
+                typeof parentSession.savedSelectionStart === "number" &&
+                typeof parentSession.savedSelectionEnd === "number" &&
+                typeof parentSession.inputElement.setSelectionRange === "function"
+            ) {
+                try {
+                    parentSession.inputElement.setSelectionRange(
+                        parentSession.savedSelectionStart,
+                        parentSession.savedSelectionEnd
+                    );
+                } catch {}
+            }
             if (this.badgeEl) {
                 this.badgeEl.textContent = parentSession.depth > 1 ? `再帰登録 (${parentSession.depth})` : "辞書登録";
             }
@@ -201,6 +277,38 @@ export class RegistrationModal {
         }
 
         return null;
+    }
+
+    public updateStatus(status: {
+        mode?: string;
+        preedit?: string;
+        candidate?: string;
+        statusText?: string;
+    }): void {
+        if (this.modeBadgeEl && status.mode !== undefined) {
+            this.modeBadgeEl.textContent = status.mode;
+        }
+        if (this.preeditEl) {
+            this.preeditEl.textContent = status.preedit ?? "";
+            this.preeditEl.style.display = status.preedit ? "" : "none";
+        }
+        if (this.candidateEl) {
+            this.candidateEl.textContent = status.candidate ? `▼${status.candidate}` : "";
+            this.candidateEl.style.display = status.candidate ? "" : "none";
+        }
+        if (this.statusTextEl) {
+            this.statusTextEl.textContent = status.statusText ?? "";
+            this.statusTextEl.style.display = status.statusText ? "" : "none";
+        }
+    }
+
+    public getStatusText(): { mode: string; preedit: string; candidate: string; statusText: string } {
+        return {
+            mode: this.modeBadgeEl?.textContent ?? "",
+            preedit: this.preeditEl?.textContent ?? "",
+            candidate: this.candidateEl?.textContent ?? "",
+            statusText: this.statusTextEl?.textContent ?? ""
+        };
     }
 
     public close(): void {
@@ -228,6 +336,11 @@ export class RegistrationModal {
         this.badgeEl = null;
         this.promptEl = null;
         this.inputContainerEl = null;
+        this.statusLineEl = null;
+        this.modeBadgeEl = null;
+        this.preeditEl = null;
+        this.candidateEl = null;
+        this.statusTextEl = null;
     }
 
     public isOpen(): boolean {

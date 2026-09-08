@@ -182,11 +182,13 @@ describe("RegistrationModal & Target Coordination (TC-MODAL-01 .. TC-MODAL-08)",
         };
 
         jisyoProvider = new SimpleMemoryJisyoProvider();
+        RegistrationModal.resetActiveModal();
         hud = new FloatingHUD();
         adapter = new BrowserEditorAdapter(hud, jisyoProvider, mockTarget.getElement());
     });
 
     afterEach(() => {
+        RegistrationModal.resetActiveModal();
         (globalThis as any).document = originalDocument;
         (globalThis as any).window = originalWindow;
     });
@@ -503,6 +505,142 @@ describe("RegistrationModal & Target Coordination (TC-MODAL-01 .. TC-MODAL-08)",
             const beyondMax = modal.pushSession("レベル6", "");
             expect(beyondMax).toBeNull();
             expect(modal.getDepth()).toBe(5);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // TC-MODAL-09: FloatingHUD 隠蔽とモーダル内ステータス行の統合表示
+    // -------------------------------------------------------------------------
+    describe("TC-MODAL-09: FloatingHUD Isolation and Modal Status Line Integration", () => {
+        it("hides FloatingHUD while modal is open, renders status line in modal, and restores FloatingHUD on close", async () => {
+            // 1. Initial typing at web target: midashigo "▽かわさき"
+            const hMode = HiraganaMode.getInstance();
+            adapter.setInputMode(hMode);
+
+            await hMode.upperAlphabetInput("K");
+            await hMode.lowerAlphabetInput("a");
+            await hMode.lowerAlphabetInput("w");
+            await hMode.lowerAlphabetInput("a");
+            await hMode.lowerAlphabetInput("s");
+            await hMode.lowerAlphabetInput("a");
+            await hMode.lowerAlphabetInput("k");
+            await hMode.lowerAlphabetInput("i");
+
+            // FloatingHUD should be visible and showing "▽かわさき"
+            expect(adapter.isInMidashigo()).toBe(true);
+            expect(hud.getVisible()).toBe(true);
+            expect(hud.getState()?.preedit).toBe("▽かわさき");
+
+            // 2. Open RegistrationModal
+            const modal = new RegistrationModal(mockShadow as unknown as ShadowRoot);
+            modal.open("かわさき", "", mockTarget);
+            await adapter.openRegistrationEditor("かわさき", "");
+
+            expect(modal.isOpen()).toBe(true);
+            expect(adapter.getCurrentInputMode()).toBeInstanceOf(RegistrationMode);
+            const regMode = adapter.getCurrentInputMode() as RegistrationMode;
+
+            // CRITICAL SPEC: FloatingHUD at webpage input MUST be hidden while modal is open!
+            expect(hud.getVisible()).toBe(false);
+
+            // Modal status line should reflect initial state
+            const initialStatus = modal.getStatusText();
+            expect(initialStatus.mode).toBe("かな");
+            expect(initialStatus.preedit).toBe("");
+
+            // 3. Type composition inside modal: "Kawa" -> "▽かわ"
+            await regMode.upperAlphabetInput("K");
+            await regMode.lowerAlphabetInput("a");
+            await regMode.lowerAlphabetInput("w");
+            await regMode.lowerAlphabetInput("a");
+
+            // Modal status line should now show "▽かわ"
+            const composingStatus = modal.getStatusText();
+            expect(composingStatus.mode).toBe("かな");
+            expect(composingStatus.preedit).toBe("▽かわ");
+
+            // FloatingHUD MUST still remain hidden
+            expect(hud.getVisible()).toBe(false);
+
+            // 4. Cancel composition inside modal with Ctrl+g
+            await regMode.ctrlGInput();
+            expect(modal.getStatusText().preedit).toBe("");
+            expect(hud.getVisible()).toBe(false);
+
+            // 5. Close modal with Ctrl+g: cancel registration back to web target
+            await regMode.ctrlGInput();
+
+            // Modal is closed
+            expect(modal.isOpen()).toBe(false);
+
+            // CRITICAL SPEC: FloatingHUD resumes visibility on web target with "▽かわさき" intact!
+            expect(adapter.isInMidashigo()).toBe(true);
+            expect(adapter.extractMidashigo()).toBe("かわさき");
+            expect(hud.getVisible()).toBe(true);
+            expect(hud.getState()?.preedit).toBe("▽かわさき");
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // TC-MODAL-10: 再帰セッションにおけるカーソル・選択範囲の退避と復元
+    // -------------------------------------------------------------------------
+    describe("TC-MODAL-10: Caret and Selection Preservation Across Recursive Sessions", () => {
+        it("saves parent input selection range and restores it precisely when child session pops", () => {
+            const modal = new RegistrationModal(mockShadow as unknown as ShadowRoot);
+
+            // Depth 1: Parent session
+            const parentInput = modal.open("おや", "", mockTarget);
+            parentInput.value = "あいうえお";
+            parentInput.setSelectionRange(2, 4); // selecting "うえ"
+            expect(parentInput.selectionStart).toBe(2);
+            expect(parentInput.selectionEnd).toBe(4);
+
+            // Depth 2: Child session pushed
+            const childInput = modal.pushSession("こ", "");
+            expect(modal.getDepth()).toBe(2);
+            expect(childInput).not.toBeNull();
+            expect(parentInput.style.display).toBe("none");
+
+            // Child inputs some text
+            childInput!.value = "こども";
+            childInput!.setSelectionRange(1, 1);
+
+            // Pop child session back to parent
+            const restoredParent = modal.popSession();
+            expect(restoredParent).toBe(parentInput);
+            expect(modal.getDepth()).toBe(1);
+            expect(parentInput.style.display).toBe("");
+
+            // CRITICAL SPEC: Parent input selectionStart and selectionEnd MUST be restored!
+            expect(parentInput.selectionStart).toBe(2);
+            expect(parentInput.selectionEnd).toBe(4);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // TC-MODAL-11: セッションスタックの境界値 (depth 0, depth 1 pop)
+    // -------------------------------------------------------------------------
+    describe("TC-MODAL-11: Boundary Values for Session Stack Operations", () => {
+        it("handles popSession on depth 1 correctly and gracefully returns null on empty stack", () => {
+            const modal = new RegistrationModal(mockShadow as unknown as ShadowRoot);
+
+            // Calling popSession on empty modal returns null
+            expect(modal.isOpen()).toBe(false);
+            expect(modal.popSession()).toBeNull();
+
+            // Open depth 1
+            modal.open("テスト", "", mockTarget);
+            expect(modal.getDepth()).toBe(1);
+            expect(modal.isOpen()).toBe(true);
+
+            // Popping depth 1 removes session and returns null (stack now empty)
+            const popped = modal.popSession();
+            expect(popped).toBeNull();
+            expect(modal.getDepth()).toBe(0);
+            expect(modal.isOpen()).toBe(false);
+
+            // Calling popSession again on empty stack returns null without throwing
+            expect(modal.popSession()).toBeNull();
         });
     });
 });
