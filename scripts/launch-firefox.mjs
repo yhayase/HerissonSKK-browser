@@ -78,22 +78,39 @@ class WebDriverClient {
     });
   }
 
-  async isAlive() {
-    if (!this.sessionId) return false;
-    try {
-      await this.request(`/session/${this.sessionId}/title`);
-      return true;
-    } catch {
-      return false;
+  async executeScript(script, args = []) {
+    const scriptStr =
+      typeof script === 'function'
+        ? `return (${script.toString()})(...arguments);`
+        : script;
+    return this.request(`/session/${this.sessionId}/execute/sync`, {
+      method: 'POST',
+      body: JSON.stringify({ script: scriptStr, args }),
+    });
+  }
+
+  async waitFor(predicateFn, timeoutMs = 15000, intervalMs = 200, args = []) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const result = await this.executeScript(predicateFn, args);
+        if (result) return result;
+      } catch {}
+      await new Promise((r) => setTimeout(r, intervalMs));
     }
+    throw new Error(`Timeout waiting for condition: ${predicateFn.toString()}`);
   }
 }
 
 let server = null;
 let geckodriverProc = null;
 let client = null;
+let isCleaningUp = false;
 
-async function cleanup(exitCode = 0) {
+async function cleanup(exitCode = null) {
+  if (isCleaningUp) return;
+  isCleaningUp = true;
+  console.log('\n[Teardown] Cleaning up Firefox session, geckodriver, and server...');
   if (client) {
     try {
       await client.deleteSession();
@@ -174,14 +191,24 @@ async function main() {
   console.log(`[Test Server] Serving on http://127.0.0.1:${port}/test.html`);
 
   console.log('[Geckodriver] Launching geckodriver on dynamic port...');
-  geckodriverProc = spawn(GECKODRIVER_PATH, ['--port', '0']);
+  geckodriverProc = spawn(GECKODRIVER_PATH, ['--port', '0', '-vv']);
+
+  geckodriverProc.stderr.on('data', (d) => {
+    console.error('[Geckodriver stderr]', d.toString().trim());
+  });
 
   let geckodriverPort = null;
   geckodriverProc.stdout.on('data', (d) => {
-    const match = d.toString().match(/Listening on [^:]+:(\d+)/);
+    const text = d.toString();
+    const match = text.match(/Listening on [^:]+:(\d+)/);
     if (match) {
       geckodriverPort = parseInt(match[1], 10);
     }
+  });
+
+  geckodriverProc.on('close', (code) => {
+    console.log(`[Geckodriver] Process exited with code ${code}`);
+    cleanup(0);
   });
 
   for (let i = 0; i < 50; i++) {
@@ -207,25 +234,25 @@ async function main() {
   console.log(`[Firefox] Navigating to ${testUrl}...`);
   await client.navigateTo(testUrl);
 
+  console.log('[Firefox] Waiting for SKK extension initialization on page...');
+  await client.waitFor(
+    () => document.documentElement.getAttribute('data-skk-initialized') === 'true',
+    15000
+  );
+  console.log('[Firefox] SKK extension initialized and ready!');
+
+  // Focus the first input element so user can type immediately
+  await client.executeScript(() => {
+    document.getElementById('input-test')?.focus();
+  });
+
   console.log(`\n🎉 Firefox is running with SKK Extension at ${testUrl}`);
+  console.log('💡 Press Ctrl+j in any input/textarea/contenteditable/monaco to toggle SKK mode [かな]');
   console.log('Close the Firefox window or press Ctrl+C to terminate.\n');
 
-  let consecutiveErrors = 0;
-  while (true) {
-    await new Promise((r) => setTimeout(r, 1500));
-    const alive = await client.isAlive();
-    if (!alive) {
-      consecutiveErrors++;
-      if (consecutiveErrors >= 4) {
-        console.log('[Firefox] Browser window closed.');
-        break;
-      }
-    } else {
-      consecutiveErrors = 0;
-    }
-  }
-
-  await cleanup(0);
+  // Keep node process alive without sending any further WebDriver commands
+  // This leaves Firefox 100% free and responsive for user interaction
+  await new Promise(() => {});
 }
 
 main().catch(async (err) => {
