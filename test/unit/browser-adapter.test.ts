@@ -11,6 +11,7 @@ import { DeleteLeftResult } from "../../src/core/skk/editor/IEditor";
 import { FloatingHUD } from "../../src/hud/FloatingHUD";
 import { getActiveCaretCoordinates } from "../../src/adapter/CaretPosition";
 import { insertText, isInputElement, isTextAreaElement, isSelectableInput } from "../../src/adapter/TextInserter";
+import { RegistrationMode } from "../../src/core/skk/input-mode/henkan/RegistrationMode";
 
 // --- Mock DOM Environment Setup for Unit Testing ---
 
@@ -1015,6 +1016,111 @@ describe("BrowserEditorAdapter", () => {
             expect(result.success).toBe(true);
             expect(result.method).toBe("fallback-value-replace");
             expect(numberInput.value).toBe("1009");
+        });
+    });
+
+    describe("Focus transition and status lifecycle", () => {
+        it("commits composition in element A when switching focus to element B", async () => {
+            const inputA = new MockDOMElement();
+            const inputB = new MockDOMElement();
+            (document as any).activeElement = inputA;
+
+            adapter.setTargetElement(inputA as unknown as Element);
+            adapter.setInputMode(HiraganaMode.getInstance());
+
+            // Type 'k', 'a', 'w', 'a' -> midashigo ▽かわ
+            await adapter.getCurrentInputMode().upperAlphabetInput("K");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("a");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("w");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("a");
+            expect(adapter.isInMidashigo()).toBe(true);
+            expect(adapter.getMidashigo()).toBe("かわ");
+
+            // Focus moves to inputB
+            (document as any).activeElement = inputB;
+            adapter.setTargetElement(inputB as unknown as Element);
+
+            // Composition should be committed to inputA
+            expect(inputA.value).toBe("かわ");
+            // Adapter should no longer be in midashigo
+            expect(adapter.isInMidashigo()).toBe(false);
+            // inputB should be untouched
+            expect(inputB.value).toBe("");
+        });
+
+        it("commits active candidate in element A when switching focus to element B", async () => {
+            const inputA = new MockDOMElement();
+            const inputB = new MockDOMElement();
+            (document as any).activeElement = inputA;
+
+            adapter.setTargetElement(inputA as unknown as Element);
+            adapter.setInputMode(HiraganaMode.getInstance());
+
+            // Type 'k', 'a', 'n', 'j', 'i' -> Space (candidate "漢字")
+            await adapter.getCurrentInputMode().upperAlphabetInput("K");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("a");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("n");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("j");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("i");
+            await adapter.getCurrentInputMode().spaceInput();
+
+            expect(adapter.getCurrentCandidate()?.word).toBe("漢字");
+
+            // Focus switches to inputB
+            (document as any).activeElement = inputB;
+            adapter.setTargetElement(inputB as unknown as Element);
+
+            // Candidate committed into inputA
+            expect(inputA.value).toBe("漢字");
+            expect(adapter.getCurrentCandidate()).toBeUndefined();
+            expect(adapter.isInMidashigo()).toBe(false);
+            expect(inputB.value).toBe("");
+        });
+
+        it("hides HUD when focus switches to uneditable element (e.g. document body)", async () => {
+            const inputA = new MockDOMElement();
+            const bodyEl = { tagName: "BODY", isContentEditable: false, closest: () => null };
+            (document as any).activeElement = inputA;
+
+            adapter.setTargetElement(inputA as unknown as Element);
+            adapter.setInputMode(HiraganaMode.getInstance());
+            adapter.updateHUD();
+            expect(hud.getVisible()).toBe(true);
+
+            // Start midashigo
+            await adapter.getCurrentInputMode().upperAlphabetInput("K");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("a");
+
+            // Focus switches to body
+            (document as any).activeElement = bodyEl;
+            adapter.setTargetElement(bodyEl as any);
+            adapter.updateHUD();
+
+            // InputA got committed
+            expect(inputA.value).toBe("か");
+            // HUD is hidden
+            expect(hud.getVisible()).toBe(false);
+        });
+
+        it("clears [辞書登録: ...] status when exiting registration mode via confirm or cancel", async () => {
+            const inputA = new MockDOMElement();
+            (document as any).activeElement = inputA;
+            adapter.setTargetElement(inputA as unknown as Element);
+            adapter.setInputMode(HiraganaMode.getInstance());
+
+            // Open registration editor for midashigo 'てすと'
+            await adapter.openRegistrationEditor("てすと", "");
+
+            expect((adapter as any).lastStatus).toContain("[辞書登録: てすと]");
+            expect(adapter.getCurrentInputMode()).toBeInstanceOf(RegistrationMode);
+
+            // Cancel registration (C-g / abort)
+            const regMode = adapter.getCurrentInputMode() as RegistrationMode;
+            await regMode.cancelRegistration();
+
+            // Status should be cleared
+            expect((adapter as any).lastStatus).toBe("");
+            expect(hud.getState()?.status).toBeFalsy();
         });
     });
 });

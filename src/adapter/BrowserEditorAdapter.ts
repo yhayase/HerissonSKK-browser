@@ -18,6 +18,9 @@ import { createEditorTarget } from "./targets/EditorTargetFactory";
 import { InputElementTarget } from "./targets/InputElementTarget";
 import { getActiveCaretCoordinates } from "./CaretPosition";
 import { insertText, isInputElement, isTextAreaElement, isSelectableInput } from "./TextInserter";
+import { isTargetEditable } from "./DOMUtils";
+import { KakuteiMode } from "../core/skk/input-mode/henkan/KakuteiMode";
+import { AbstractKanaMode } from "../core/skk/input-mode/AbstractKanaMode";
 
 export type TargetElementSupplier = Element | (() => Element | null) | null;
 
@@ -61,6 +64,8 @@ export class BrowserEditorAdapter implements IEditor {
     private originalSelectionSnapshot: IEditorSelectionSnapshot | null = null;
     private pendingRegistrationTarget: IEditorTarget | null = null;
 
+    private activeEditorElement: Element | null = null;
+
     constructor(
         hud?: FloatingHUD,
         jisyoProvider?: IJisyoProvider,
@@ -70,6 +75,7 @@ export class BrowserEditorAdapter implements IEditor {
         this.hud = hud ?? new FloatingHUD();
         this.jisyoProvider = jisyoProvider ?? new SimpleMemoryJisyoProvider();
         this.targetSupplier = target;
+        this.activeEditorElement = typeof target === "function" ? target() : (target ?? null);
         EditorFactory.setInstance(this);
         this.currentInputMode = initialMode ?? HiraganaMode.getInstance();
     }
@@ -90,7 +96,71 @@ export class BrowserEditorAdapter implements IEditor {
     }
 
     public setTargetElement(target: TargetElementSupplier): void {
+        const newEl = typeof target === "function" ? target() : target;
+        const prevEl = this.activeEditorElement ?? this.getTargetElement();
+
+        if (prevEl && prevEl !== newEl && !(this.currentInputMode instanceof RegistrationMode)) {
+            const hasComposition =
+                this.inMidashigo ||
+                this.currentCandidate !== undefined ||
+                this.remainingRomaji.length > 0;
+
+            if (hasComposition && isTargetEditable(prevEl)) {
+                void this.commitComposition(prevEl);
+            }
+        }
+
         this.targetSupplier = target;
+        this.activeEditorElement = newEl;
+    }
+
+    public async commitComposition(targetEl?: Element | null): Promise<void> {
+        const target = targetEl ?? this.getTargetElement();
+        let textToInsert = "";
+
+        if (this.currentCandidate) {
+            textToInsert = this.currentCandidate.word + this.currentOkuri + this.currentSuffix;
+        } else if (this.inMidashigo) {
+            let midashigo = this.midashigoText;
+            if (this.remainingRomaji) {
+                const kana = wanakana.toKana(this.remainingRomaji);
+                if (kana && kana !== this.remainingRomaji) {
+                    midashigo += kana;
+                }
+            }
+            textToInsert = midashigo;
+        } else if (this.remainingRomaji) {
+            const kana = wanakana.toKana(this.remainingRomaji);
+            if (kana && kana !== this.remainingRomaji) {
+                textToInsert = kana;
+            }
+        }
+
+        if (textToInsert && target) {
+            const editorTarget = createEditorTarget(target);
+            if (editorTarget) {
+                editorTarget.insertText(textToInsert);
+            } else {
+                this.insertToDom(textToInsert);
+            }
+        }
+
+        if (this.currentInputMode instanceof AbstractKanaMode) {
+            this.currentInputMode.setHenkanMode(KakuteiMode.create(this.currentInputMode, this));
+        }
+
+        this.inMidashigo = false;
+        this.midashigoText = "";
+        this.remainingRomaji = "";
+        this.isOkuri = false;
+        this.currentCandidate = undefined;
+        this.currentOkuri = "";
+        this.currentSuffix = "";
+        this.candidateList = [];
+        this.candidateAlphabetList = [];
+        if (this.lastStatus.startsWith("[辞書登録:")) {
+            this.lastStatus = "";
+        }
     }
 
     public getHUD(): FloatingHUD {
@@ -189,6 +259,11 @@ export class BrowserEditorAdapter implements IEditor {
                 this.registrationModal = null;
                 this.originalEditorTarget = null;
                 this.originalSelectionSnapshot = null;
+                this.lastStatus = "";
+                this.lastErrorMessage = "";
+                this.registrationEditorOpened = false;
+                this.registrationYomi = undefined;
+                this.registrationOkuri = undefined;
             }
         }
 
@@ -500,6 +575,11 @@ export class BrowserEditorAdapter implements IEditor {
 
     public async notifyModeInternalStateChanged(): Promise<void> {
         this.pendingRegistrationTarget = null;
+        if (!(this.currentInputMode instanceof RegistrationMode)) {
+            if (this.lastStatus.startsWith("[辞書登録:")) {
+                this.lastStatus = "";
+            }
+        }
         this.updateHUD();
     }
 
@@ -535,6 +615,15 @@ export class BrowserEditorAdapter implements IEditor {
         }
 
         const target = this.getTargetElement();
+        if (!target || !isTargetEditable(target)) {
+            this.hud.hide();
+            return;
+        }
+
+        if (!(this.currentInputMode instanceof RegistrationMode) && this.lastStatus.startsWith("[辞書登録:")) {
+            this.lastStatus = "";
+        }
+
         const coords = typeof document !== "undefined" ? getActiveCaretCoordinates(target) : null;
         const viewportHeight =
             typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 600;
