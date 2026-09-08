@@ -25,6 +25,18 @@ class MockInputElement {
         this.selectionEnd = end;
     }
 
+    public setRangeText(text: string, start: number, end: number, selectMode?: string): void {
+        if (this.type === "number" || this.type === "email") {
+            throw new Error(`The input element's type ('${this.type}') does not support selection.`);
+        }
+        this.value = this.value.slice(0, start) + text + this.value.slice(end);
+        if (selectMode === "end") {
+            const newPos = start + text.length;
+            this.selectionStart = newPos;
+            this.selectionEnd = newPos;
+        }
+    }
+
     public focus(): void {
         this.isFocused = true;
         if (typeof document !== "undefined") {
@@ -227,6 +239,7 @@ describe("Editor Targets Specification (TC-TARGET-01, TC-TARGET-02)", () => {
 
                 const result = target.insertText("特別区");
                 expect(result.success).toBe(true);
+                expect(result.method).toBe("setRangeText");
                 expect(target.getText()).toBe("東京特別区");
                 expect(el.selectionStart).toBe(5); // caret placed right after inserted text
                 expect(el.selectionEnd).toBe(5);
@@ -288,12 +301,57 @@ describe("Editor Targets Specification (TC-TARGET-01, TC-TARGET-02)", () => {
                 // insertText should not throw
                 const result = target.insertText("4");
                 expect(result.success).toBe(true);
+                expect(result.method).toBe("value-fallback");
                 expect(target.getText()).toBe("1234");
 
                 // deleteLeft should not throw
                 const deleted = target.deleteLeft();
                 expect(deleted).toBe(true);
                 expect(target.getText()).toBe("123");
+            });
+
+            it("handles input where setRangeText, setSelectionRange, and selection access throw DOMException (e.g. type='email')", () => {
+                const el = new MockInputElement("INPUT", "email");
+                el.value = "user@example.com";
+                (el as any).setRangeText = vi.fn().mockImplementation(() => {
+                    throw new Error("The element's type ('email') does not support selection.");
+                });
+                Object.defineProperty(el, "selectionStart", {
+                    get() {
+                        throw new Error("Failed to read 'selectionStart': type 'email' does not support selection.");
+                    }
+                });
+                Object.defineProperty(el, "selectionEnd", {
+                    get() {
+                        throw new Error("Failed to read 'selectionEnd': type 'email' does not support selection.");
+                    }
+                });
+                el.setSelectionRange = vi.fn().mockImplementation(() => {
+                    throw new Error("Failed to execute 'setSelectionRange': type 'email' does not support selection.");
+                });
+
+                const target = new InputElementTarget(el as unknown as HTMLInputElement);
+
+                // saveSelection and restore
+                const snapshot = target.saveSelection();
+                expect(snapshot.isValid()).toBe(true);
+                expect(() => snapshot.restore()).not.toThrow();
+
+                // insertText fallbacks to appending value and dispatching input event
+                const insertRes = target.insertText(".jp");
+                expect(insertRes.success).toBe(true);
+                expect(insertRes.method).toBe("value-fallback");
+                expect(target.getText()).toBe("user@example.com.jp");
+                expect(el.events.some((e) => e.type === "input")).toBe(true);
+
+                // deleteLeft removes last character
+                const deleted = target.deleteLeft();
+                expect(deleted).toBe(true);
+                expect(target.getText()).toBe("user@example.com.j");
+
+                // getTextBeforeCaret / getTextAfterCaret
+                expect(target.getTextBeforeCaret()).toBe("user@example.com.j");
+                expect(target.getTextAfterCaret()).toBe("");
             });
         });
 

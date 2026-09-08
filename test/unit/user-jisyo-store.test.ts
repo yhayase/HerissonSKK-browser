@@ -106,6 +106,38 @@ describe("IndexedDbUserStore", () => {
             expect(await store.reorderCandidate("test", -1)).toBe(false);
             expect(await store.reorderCandidate("test", 5)).toBe(false);
         });
+
+        it("promotes candidate by Candidate object", async () => {
+            await store.saveCandidate("test", new Candidate("c1"));
+            await store.saveCandidate("test", new Candidate("c2"));
+            await store.saveCandidate("test", new Candidate("c3"));
+            // Current order: ["c3", "c2", "c1"]
+
+            const success = await store.reorderCandidate("test", new Candidate("c1"));
+            expect(success).toBe(true);
+
+            const entries = await store.loadUserEntries();
+            expect(entries.get("test")?.map((c) => c.word)).toEqual(["c1", "c3", "c2"]);
+        });
+
+        it("promotes candidate by word string", async () => {
+            await store.saveCandidate("test", new Candidate("c1"));
+            await store.saveCandidate("test", new Candidate("c2"));
+            await store.saveCandidate("test", new Candidate("c3"));
+            // Current order: ["c3", "c2", "c1"]
+
+            const success = await store.reorderCandidate("test", "c2");
+            expect(success).toBe(true);
+
+            const entries = await store.loadUserEntries();
+            expect(entries.get("test")?.map((c) => c.word)).toEqual(["c2", "c3", "c1"]);
+        });
+
+        it("returns false when candidate object or word is not found", async () => {
+            await store.saveCandidate("test", new Candidate("c1"));
+            expect(await store.reorderCandidate("test", new Candidate("not_found"))).toBe(false);
+            expect(await store.reorderCandidate("test", "not_found")).toBe(false);
+        });
     });
 
     describe("deleteCandidate", () => {

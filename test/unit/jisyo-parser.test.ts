@@ -440,12 +440,24 @@ describe("JisyoParser", () => {
                 return true;
             }
 
-            async reorderCandidate(key: string, selectedIndex: number): Promise<boolean> {
+            async reorderCandidate(key: string, target: Candidate | string | number): Promise<boolean> {
                 const list = this.userEntries.get(key);
-                if (!list || selectedIndex < 0 || selectedIndex >= list.length) {
+                if (!list || list.length === 0) {
                     return false;
                 }
-                const selected = list.splice(selectedIndex, 1)[0];
+                let index = -1;
+                if (typeof target === "number") {
+                    if (target >= 0 && target < list.length) {
+                        index = target;
+                    }
+                } else {
+                    const targetWord = typeof target === "string" ? target : target.word;
+                    index = list.findIndex((c) => c.word === targetWord);
+                }
+                if (index === -1) {
+                    return false;
+                }
+                const selected = list.splice(index, 1)[0];
                 if (selected) {
                     list.unshift(selected);
                 }

@@ -119,13 +119,24 @@ export default defineBackground(() => {
       }
 
       case 'SKK_USER_REORDER': {
-        const success = await userStore.reorderCandidate(message.key, message.selectedIndex);
+        const target = message.candidate ?? message.selectedIndex;
+        if (target === undefined) {
+          return false;
+        }
+        const cand =
+          typeof target === 'object'
+            ? new Candidate(target.word, target.annotation)
+            : target;
+        const success = await userStore.reorderCandidate(message.key, cand);
         if (success) {
           await broadcastToAllTabs({
             type: 'CANDIDATE_REORDERED',
             key: message.key,
+            candidate: typeof message.candidate === 'object' ? message.candidate : undefined,
             selectedIndex: message.selectedIndex,
             senderId: message.senderId,
+            mutationId: `bg_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`,
+            timestamp: Date.now(),
           });
         }
         return success;
