@@ -1,5 +1,7 @@
-import { parseJisyoBuffer } from "../../core/skk/jisyo/JisyoParser";
+import { decodeJisyoBuffer, parseJisyoBuffer } from "./JisyoBufferDecoder";
 import type { IndexedDbJisyoStore } from "./IndexedDbJisyoStore";
+
+export { decodeJisyoBuffer, parseJisyoBuffer };
 
 /**
  * Options for dictionary loading and initialization.
@@ -12,7 +14,19 @@ export interface DictionaryLoaderOptions {
     dictPath?: string;
 
     /**
-     * If true, forces re-import even if the store already contains entries.
+     * Unique identifier for the dictionary in metadata tracking.
+     * Defaults to dictPath or "dict/SKK-JISYO.S".
+     */
+    dictId?: string;
+
+    /**
+     * Version string of the dictionary file.
+     * Defaults to "1.0.0".
+     */
+    version?: string;
+
+    /**
+     * If true, forces re-import even if already completed.
      */
     force?: boolean;
 
@@ -98,9 +112,13 @@ export class DictionaryLoader {
         store: IndexedDbJisyoStore,
         options?: DictionaryLoaderOptions
     ): Promise<number> {
+        const dictPath = options?.dictPath ?? "dict/SKK-JISYO.S";
+        const dictId = options?.dictId ?? dictPath;
+        const version = options?.version ?? "1.0.0";
+
         if (!options?.force) {
-            const count = await store.count();
-            if (count > 0) {
+            const isCompleted = await store.isImportCompleted(dictId, version);
+            if (isCompleted) {
                 return 0;
             }
         }
@@ -112,7 +130,16 @@ export class DictionaryLoader {
 
         this.initPromise = (async () => {
             try {
-                const dictPath = options?.dictPath ?? "dict/SKK-JISYO.S";
+                // Clear any partial entries and record in-progress status
+                await store.clear(dictId);
+                await store.setImportStatus({
+                    dictId,
+                    version,
+                    completed: false,
+                    entryCount: 0,
+                    timestamp: Date.now(),
+                });
+
                 const url = this.getDictionaryUrl(dictPath);
                 const buffer = await this.fetchDictionaryBuffer(url, dictPath);
                 const entriesMap = parseJisyoBuffer(buffer);
@@ -121,6 +148,16 @@ export class DictionaryLoader {
                     options?.batchSize ?? 2000,
                     options?.onProgress
                 );
+
+                // Mark completed only after all entries are successfully imported
+                await store.setImportStatus({
+                    dictId,
+                    version,
+                    completed: true,
+                    entryCount: imported,
+                    timestamp: Date.now(),
+                });
+
                 console.log(`[SKK] DictionaryLoader: successfully imported ${imported} entries into system dictionary`);
                 return imported;
             } finally {

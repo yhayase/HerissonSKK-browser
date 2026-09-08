@@ -249,4 +249,52 @@ describe("RuntimeMessageSync", () => {
             (globalThis as any).browser = origBrowser;
         }
     });
+
+    it("suppresses duplicate broadcasts when receiving multiple messages with identical mutationId", () => {
+        const handlers: Array<(msg: any) => void> = [];
+        const mockBrowser = {
+            runtime: {
+                onMessage: {
+                    addListener: (fn: any) => {
+                        handlers.push(fn);
+                    },
+                    removeListener: vi.fn(),
+                },
+            },
+        };
+
+        const origBrowser = (globalThis as any).browser;
+        (globalThis as any).browser = mockBrowser;
+
+        try {
+            const sync = new RuntimeMessageSync({ senderId: "tab_receiver" });
+            const handler = vi.fn();
+            sync.onRemoteMutation(handler);
+
+            const duplicateMessage = {
+                type: "SKK_USER_SYNC",
+                event: {
+                    type: "CANDIDATE_SAVED",
+                    key: "test",
+                    senderId: "tab_sender",
+                    mutationId: "mut_duplicate_123",
+                    timestamp: Date.now(),
+                },
+            };
+
+            // Dispatch identical message twice
+            for (const h of handlers) {
+                h(duplicateMessage);
+                h(duplicateMessage);
+            }
+
+            // Callback should only be triggered once
+            expect(handler).toHaveBeenCalledTimes(1);
+            expect(handler).toHaveBeenCalledWith(duplicateMessage.event);
+
+            sync.close();
+        } finally {
+            (globalThis as any).browser = origBrowser;
+        }
+    });
 });
