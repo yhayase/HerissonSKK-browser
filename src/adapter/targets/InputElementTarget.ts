@@ -11,9 +11,25 @@ export class InputElementTarget implements IEditorTarget {
         return this.element;
     }
 
+    private getSelectionStart(): number {
+        try {
+            return this.element.selectionStart ?? (this.element.value?.length ?? 0);
+        } catch {
+            return this.element.value?.length ?? 0;
+        }
+    }
+
+    private getSelectionEnd(): number {
+        try {
+            return this.element.selectionEnd ?? (this.element.value?.length ?? 0);
+        } catch {
+            return this.element.value?.length ?? 0;
+        }
+    }
+
     public saveSelection(): IEditorSelectionSnapshot {
-        const savedStart = this.element.selectionStart ?? 0;
-        const savedEnd = this.element.selectionEnd ?? 0;
+        const savedStart = this.getSelectionStart();
+        const savedEnd = this.getSelectionEnd();
         return {
             isValid: () => this.isValid(),
             restore: () => {
@@ -46,8 +62,8 @@ export class InputElementTarget implements IEditorTarget {
     }
 
     public insertText(text: string): { success: boolean; method: string } {
-        const start = this.element.selectionStart ?? 0;
-        const end = this.element.selectionEnd ?? 0;
+        const start = this.getSelectionStart();
+        const end = this.getSelectionEnd();
         let method = "execCommand";
         let inserted = false;
 
@@ -83,8 +99,8 @@ export class InputElementTarget implements IEditorTarget {
     }
 
     public deleteLeft(): boolean {
-        const start = this.element.selectionStart ?? 0;
-        const end = this.element.selectionEnd ?? 0;
+        const start = this.getSelectionStart();
+        const end = this.getSelectionEnd();
 
         if (start === 0 && end === 0) {
             return false;

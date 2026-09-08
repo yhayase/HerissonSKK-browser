@@ -85,13 +85,6 @@ export class ContentEditableTarget implements IEditorTarget {
                 if (typeof range.insertNode === "function") {
                     range.insertNode(textNode);
                 }
-                if (
-                    range.startContainer &&
-                    range.startContainer !== this.element &&
-                    typeof range.startContainer.textContent === "string"
-                ) {
-                    this.element.textContent = range.startContainer.textContent;
-                }
                 return { success: true, method: "range-insert" };
             }
         }

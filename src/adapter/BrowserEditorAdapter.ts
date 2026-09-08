@@ -10,7 +10,7 @@ import { HiraganaMode } from "../core/skk/input-mode/HiraganaMode";
 import { KatakanaMode } from "../core/skk/input-mode/KatakanaMode";
 import { ZeneiMode } from "../core/skk/input-mode/ZeneiMode";
 import { AsciiMode } from "../core/skk/input-mode/AsciiMode";
-import { RegistrationMode } from "../core/skk/input-mode/henkan/RegistrationMode";
+import { RegistrationMode, MAX_REGISTRATION_DEPTH } from "../core/skk/input-mode/henkan/RegistrationMode";
 import { FloatingHUD } from "../hud/FloatingHUD";
 import { RegistrationModal } from "../hud/RegistrationModal";
 import type { IEditorTarget, IEditorSelectionSnapshot } from "./targets/IEditorTarget";
@@ -440,6 +440,11 @@ export class BrowserEditorAdapter implements IEditor {
 
         const prevMode = this.currentInputMode;
         const parentReg = prevMode instanceof RegistrationMode ? prevMode : undefined;
+        if (parentReg && parentReg.getDepth() >= MAX_REGISTRATION_DEPTH) {
+            this.showErrorMessage("辞書登録の再帰深度制限を超えました");
+            return;
+        }
+
         const regMode = new RegistrationMode(yomi, okuri, this, prevMode, parentReg);
 
         let modal = this.registrationModal;
@@ -456,7 +461,11 @@ export class BrowserEditorAdapter implements IEditor {
         if (modal) {
             this.registrationModal = modal;
             if (parentReg) {
-                modal.pushSession(yomi, okuri);
+                const childInput = modal.pushSession(yomi, okuri);
+                if (!childInput) {
+                    this.showErrorMessage("辞書登録の再帰深度制限を超えました");
+                    return;
+                }
             } else {
                 if (!modal.isOpen()) {
                     const origEl = this.getTargetElement();

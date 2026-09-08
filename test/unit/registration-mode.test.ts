@@ -410,6 +410,38 @@ describe("RegistrationMode (Inline & Recursive Registration)", () => {
             expect(rootReg.getMiniBufferEditor().getCommittedText()).toBe("親");
         });
 
+        it("rejects nesting beyond MAX_REGISTRATION_DEPTH (5) with error message", async () => {
+            // Level 1 (depth 1)
+            await adapter.openRegistrationEditor("いち", "");
+            const reg1 = adapter.getCurrentInputMode() as RegistrationMode;
+            expect(reg1.getDepth()).toBe(1);
+
+            // Level 2 (depth 2)
+            await reg1.getMiniBufferEditor().openRegistrationEditor("に", "");
+            const reg2 = adapter.getCurrentInputMode() as RegistrationMode;
+            expect(reg2.getDepth()).toBe(2);
+
+            // Level 3 (depth 3)
+            await reg2.getMiniBufferEditor().openRegistrationEditor("さん", "");
+            const reg3 = adapter.getCurrentInputMode() as RegistrationMode;
+            expect(reg3.getDepth()).toBe(3);
+
+            // Level 4 (depth 4)
+            await reg3.getMiniBufferEditor().openRegistrationEditor("よん", "");
+            const reg4 = adapter.getCurrentInputMode() as RegistrationMode;
+            expect(reg4.getDepth()).toBe(4);
+
+            // Level 5 (depth 5)
+            await reg4.getMiniBufferEditor().openRegistrationEditor("ご", "");
+            const reg5 = adapter.getCurrentInputMode() as RegistrationMode;
+            expect(reg5.getDepth()).toBe(5);
+
+            // Attempt Level 6 (depth > 5) -> rejected
+            await reg5.getMiniBufferEditor().openRegistrationEditor("ろく", "");
+            expect(adapter.getCurrentInputMode()).toBe(reg5);
+            expect(reg5.getDepth()).toBe(5);
+        });
+
         it("backspace on empty nested buffer is a no-op and stays in nested registration", async () => {
             await adapter.openRegistrationEditor("おや２", "");
             const rootReg = adapter.getCurrentInputMode() as RegistrationMode;
