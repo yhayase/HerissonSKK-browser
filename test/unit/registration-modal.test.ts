@@ -463,6 +463,7 @@ describe("RegistrationModal & Target Coordination (TC-MODAL-01 .. TC-MODAL-08)",
             // Depth 2: Child session triggered
             const childInput = modal.pushSession("たんご", "");
             expect(modal.getDepth()).toBe(2);
+            expect(childInput).not.toBeNull();
             expect(childInput).not.toBe(parentInput);
             expect(modal.getActiveInputElement()).toBe(childInput);
 
@@ -471,7 +472,7 @@ describe("RegistrationModal & Target Coordination (TC-MODAL-01 .. TC-MODAL-08)",
             expect(parentInput.value).toBe("複合");
 
             // Child inputs "単語"
-            childInput.value = "単語";
+            childInput!.value = "単語";
 
             // Child session finishes on confirm -> pops to parent
             const restoredParent = modal.popSession();
@@ -479,6 +480,29 @@ describe("RegistrationModal & Target Coordination (TC-MODAL-01 .. TC-MODAL-08)",
             expect(restoredParent).toBe(parentInput);
             expect(parentInput.style.display).toBe("");
             expect(modal.getActiveInputElement()).toBe(parentInput);
+        });
+
+        it("TC-MODAL-08b: rejects pushing sessions beyond MAX_REGISTRATION_DEPTH (depth 5)", () => {
+            const modal = new RegistrationModal(mockShadow as unknown as ShadowRoot);
+            modal.open("レベル1", "", mockTarget);
+            expect(modal.getDepth()).toBe(1);
+
+            expect(modal.pushSession("レベル2", "")).not.toBeNull();
+            expect(modal.getDepth()).toBe(2);
+
+            expect(modal.pushSession("レベル3", "")).not.toBeNull();
+            expect(modal.getDepth()).toBe(3);
+
+            expect(modal.pushSession("レベル4", "")).not.toBeNull();
+            expect(modal.getDepth()).toBe(4);
+
+            expect(modal.pushSession("レベル5", "")).not.toBeNull();
+            expect(modal.getDepth()).toBe(5);
+
+            // 6th session exceeds MAX_REGISTRATION_DEPTH (5) -> returns null
+            const beyondMax = modal.pushSession("レベル6", "");
+            expect(beyondMax).toBeNull();
+            expect(modal.getDepth()).toBe(5);
         });
     });
 });

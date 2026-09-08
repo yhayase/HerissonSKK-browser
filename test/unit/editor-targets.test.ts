@@ -67,6 +67,9 @@ class MockDOMRange {
             this.startContainer.textContent =
                 text.slice(0, this.startOffset) + text.slice(this.endOffset);
             this.endOffset = this.startOffset;
+            if (this.startContainer.parentElement) {
+                this.startContainer.parentElement.textContent = this.startContainer.textContent;
+            }
         }
     }
 
@@ -78,6 +81,9 @@ class MockDOMRange {
                 text.slice(0, this.startOffset) + insertStr + text.slice(this.startOffset);
             this.startOffset += insertStr.length;
             this.endOffset = this.startOffset;
+            if (this.startContainer.parentElement) {
+                this.startContainer.parentElement.textContent = this.startContainer.textContent;
+            }
         }
     }
 }
@@ -233,6 +239,36 @@ describe("Editor Targets Specification (TC-TARGET-01, TC-TARGET-02)", () => {
                 expect(focused).toBe(true);
                 expect(el.isFocused).toBe(true);
             });
+
+            it("TC-TARGET-01f2: handles non-selectable input types (e.g. number) where selectionStart throws InvalidStateError", () => {
+                const el = new MockInputElement("INPUT", "number");
+                el.value = "123";
+                Object.defineProperty(el, "selectionStart", {
+                    get() {
+                        throw new Error("Failed to read 'selectionStart': The input element's type ('number') does not support selection.");
+                    }
+                });
+                Object.defineProperty(el, "selectionEnd", {
+                    get() {
+                        throw new Error("Failed to read 'selectionEnd': The input element's type ('number') does not support selection.");
+                    }
+                });
+                const target: IEditorTarget = new InputElementTarget(el as unknown as HTMLInputElement);
+
+                // saveSelection should not throw
+                const snapshot = target.saveSelection();
+                expect(snapshot.isValid()).toBe(true);
+
+                // insertText should not throw
+                const result = target.insertText("4");
+                expect(result.success).toBe(true);
+                expect(target.getText()).toBe("1234");
+
+                // deleteLeft should not throw
+                const deleted = target.deleteLeft();
+                expect(deleted).toBe(true);
+                expect(target.getText()).toBe("123");
+            });
         });
 
         describe("ContentEditableTarget (<div contenteditable='true'>)", () => {
@@ -263,7 +299,7 @@ describe("Editor Targets Specification (TC-TARGET-01, TC-TARGET-02)", () => {
             it("TC-TARGET-01h: insertText(text) replaces selected range in contenteditable", () => {
                 const el = new MockContentEditableElement();
                 el.textContent = "コンテンツエディタ";
-                const textNode = { textContent: el.textContent, isConnected: true };
+                const textNode = { textContent: el.textContent, isConnected: true, parentElement: el };
                 const range = new MockDOMRange(textNode, 0, textNode, 5); // "コンテンツ" (5 chars)
                 mockSelection.addRange(range);
 

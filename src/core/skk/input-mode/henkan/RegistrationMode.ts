@@ -336,6 +336,10 @@ export class RegistrationMiniBufferEditor implements IEditor {
     }
 
     public async openRegistrationEditor(yomi: string, okuri: string): Promise<void> {
+        if (this.registrationMode.getDepth() >= MAX_REGISTRATION_DEPTH) {
+            this.showErrorMessage("辞書登録の再帰深度制限を超えました");
+            return;
+        }
         if (typeof this.outerEditor.openRegistrationEditor === "function") {
             await this.outerEditor.openRegistrationEditor(yomi, okuri);
             return;
@@ -360,6 +364,8 @@ export class RegistrationMiniBufferEditor implements IEditor {
         await this.registrationMode.notifyChanged();
     }
 }
+
+export const MAX_REGISTRATION_DEPTH = 5;
 
 /**
  * RegistrationMode handles inline and recursive dictionary registration.
@@ -404,6 +410,16 @@ export class RegistrationMode extends AbstractInputMode implements IInputMode {
 
     public isNested(): boolean {
         return this.parentRegistration !== undefined;
+    }
+
+    public getDepth(): number {
+        let depth = 1;
+        let p = this.parentRegistration;
+        while (p) {
+            depth++;
+            p = p.parentRegistration;
+        }
+        return depth;
     }
 
     public getParentRegistration(): RegistrationMode | undefined {

@@ -7,6 +7,8 @@ interface RegistrationSession {
     inputElement: HTMLInputElement;
 }
 
+export const MAX_REGISTRATION_DEPTH = 5;
+
 export class RegistrationModal {
     private static activeModal: RegistrationModal | null = null;
 
@@ -130,7 +132,11 @@ export class RegistrationModal {
         return input;
     }
 
-    public pushSession(yomi: string, okuri: string): HTMLInputElement {
+    public pushSession(yomi: string, okuri: string): HTMLInputElement | null {
+        if (this.sessions.length >= MAX_REGISTRATION_DEPTH) {
+            return null;
+        }
+
         const currentSession = this.sessions[this.sessions.length - 1];
         if (currentSession && currentSession.inputElement.style) {
             currentSession.inputElement.style.display = "none";
