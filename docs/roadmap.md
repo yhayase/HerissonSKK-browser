@@ -89,30 +89,33 @@ flowchart TD
 
 ---
 
-### Phase 3: 辞書ストレージ & 検索エンジン (IndexedDB)・Firefox E2E（完了 ✅ - PRレビュー中）
+### Phase 3: 辞書ストレージ & 検索エンジン (IndexedDB)・Firefox E2E（完了 ✅）
 
 - **目的**: ネットワーク通信を行わず完全ローカル・オフラインで動作する高速な SKK 辞書システムを構築し、複数タブ間でのユーザ辞書同期とインライン再帰辞書登録を実現する。また、Gecko エンジン固有の挙動差異（キャレット座標、`insertText`、フルスクリーン等）による手戻りを防ぐため、Firefox でのヘッドレス E2E 自動結合テスト環境をこの段階で導入・完備する。
 - **実装内容**:
   1. **SKK 辞書モデル・パーサーの移植 (標準形式)**:
      - `candidate.ts`, `entry.ts`, `okuri.ts`, `types.ts` 等のモデルとパースロジックを `src/core/skk/jisyo/` に環境非依存で移植。
-     - 従来の標準 SKK 辞書形式（EUC-JP / UTF-8、`skk-dev/dict`）の行・テキスト・バッファ読み込みパーサー（`JisyoParser.ts`）の実装。
+     - 従来の標準 SKK 辞書形式（EUC-JP / UTF-8、`skk-dev/dict`）のパース処理（`JisyoParser.ts`）の実装（文字列パーサーとして純化）。
   2. **システム辞書ストレージ（IndexedDB）の実装**:
      - `public/dict/SKK-JISYO.S` などの辞書を IndexedDB の `system_jisyo` ストアにインデックス付きで格納。
      - 見出し語による高速完全一致および前方一致クエリ（`IDBKeyRange.bound`）の実装（クエリ応答時間 1〜3ms を達成）。
+     - 辞書インポート完了状態（`system_metadata`）の管理と中断・破損時の自動復旧。
   3. **ユーザ辞書ストレージ & 拡張機能コンテキスト分離の実装**:
      - 登録単語および確定履歴（学習・候補並び替え）の IndexedDB (`user_jisyo`) 永続化（ACID トランザクション保証）。
      - Web ページのスクリプトからユーザ辞書を隔離・保護するため、IndexedDB を Background Service Worker に集約し、Content Script からは RPC プロキシ（`RemoteJisyoStore`, `RemoteUserStore`）経由で透過利用するアーキテクチャを確立。
+     - 一意な `mutationId` による複数タブ間の同期メッセージ重複排除とエコーバック防止。
   4. **インライン辞書登録 & 再帰的辞書登録の実装**:
-     - フォーカスを外さずに Floating HUD 内のミニバッファで単語を登録する `RegistrationMode`。
+     - フォーカスを外さずに Shadow DOM 内のモーダルおよびミニバッファで単語を登録する `RegistrationMode` / `RegistrationModal`。
      - 辞書登録中に未知語に遭遇した際の再帰的辞書登録セッション（スタック管理、最大ネスト深度ガード付き）。
   5. **初期辞書ロード & Content Script 統合**:
      - 拡張機能バンドル辞書（公式 `SKK-JISYO.S`）の初回自動インポート機構（`DictionaryLoader.ts`）。
      - `entrypoints/content.ts` への `CompositeJisyoProvider` 統合。
+     - 合成キーイベントを遮断する `isTrusted` ガードおよび非同期検索の世代管理。
   6. **Firefox (Gecko) ヘッドレス E2E 自動結合テストの導入と差異解消**:
      - Firefox (Gecko) 用ビルド（`wxt build -b firefox`）の自動実行と `geckodriver` によるヘッドレス E2E テスト環境（`test/firefox-verify.mjs`）の構築。
      - Chrome / Firefox 双方での全入力要素（`<input>`, `<textarea>`, `contenteditable`, Monaco Editor）およびインライン辞書登録・学習の自動テスト（全10件）がパスすることを確認済み。
 - **検証結果**:
-  - 全 272 件の単体テスト、Chrome E2E（5件）、Firefox E2E（5件）の計 10 件のシナリオテストがエラー 0 でパス。
+  - 全 377 件の単体テスト、Chrome E2E（5件）、Firefox E2E（5件）の全シナリオテストがエラー 0 でパス。Codex CLI レビュー指摘（P1 4件、P2 5件）および事後 PR レビュー指摘の改修・独立検証をすべて完了。
 
 ---
 
