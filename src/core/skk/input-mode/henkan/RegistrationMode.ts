@@ -11,6 +11,18 @@ import { Candidate } from "../../jisyo/candidate";
 import type { IJisyoProvider } from "../../jisyo/IJisyoProvider";
 import * as wanakana from "wanakana";
 import { ZeneiMode } from "../ZeneiMode";
+import { AsciiMode } from "../AsciiMode";
+
+/**
+ * Bridge interface for connecting an external text target (e.g. modal input) to the mini-buffer editor
+ * while remaining environment-agnostic (pure TypeScript, no DOM).
+ */
+export interface ITextTarget {
+    insertText(text: string): { success: boolean; method: string } | void;
+    deleteLeft(): boolean;
+    getText(): string;
+    getElement?(): any;
+}
 
 /**
  * RegistrationMiniBufferEditor implements IEditor to provide an in-memory buffer
@@ -32,13 +44,25 @@ export class RegistrationMiniBufferEditor implements IEditor {
     private currentSuffix: string = "";
     private candidateList: Candidate[] = [];
     private candidateAlphabetList: string[] = [];
+    private target?: ITextTarget;
 
     constructor(registrationMode: RegistrationMode, outerEditor: IEditor) {
         this.registrationMode = registrationMode;
         this.outerEditor = outerEditor;
     }
 
+    public setTarget(target?: ITextTarget): void {
+        this.target = target;
+    }
+
+    public getTarget(): ITextTarget | undefined {
+        return this.target;
+    }
+
     public getCommittedText(): string {
+        if (this.target) {
+            return this.target.getText();
+        }
         return this.buffer;
     }
 
@@ -78,7 +102,7 @@ export class RegistrationMiniBufferEditor implements IEditor {
     }
 
     public getDisplayText(): string {
-        let result = this.buffer;
+        let result = this.getCommittedText();
         if (this.currentCandidate) {
             result += `▼${this.currentCandidate.word}${this.currentOkuri}${this.currentSuffix}`;
         } else if (this.inMidashigo) {
@@ -111,20 +135,28 @@ export class RegistrationMiniBufferEditor implements IEditor {
                 this.midashigoText += str;
             }
         } else {
-            this.buffer += str;
+            if (this.target) {
+                this.target.insertText(str);
+            } else {
+                this.buffer += str;
+            }
         }
         await this.registrationMode.notifyChanged();
         return true;
     }
 
     public async replaceRange(range: IRange, str: string): Promise<boolean> {
-        this.buffer += str;
+        if (this.target) {
+            this.target.insertText(str);
+        } else {
+            this.buffer += str;
+        }
         await this.registrationMode.notifyChanged();
         return true;
     }
 
     public getTextInRange(range: IRange): string {
-        return this.buffer;
+        return this.getCommittedText();
     }
 
     public async deleteLeft(): Promise<DeleteLeftResult> {
@@ -141,6 +173,12 @@ export class RegistrationMiniBufferEditor implements IEditor {
                 await this.clearMidashigo();
                 return DeleteLeftResult.markerDeleted;
             }
+        }
+
+        if (this.target) {
+            const deleted = this.target.deleteLeft();
+            await this.registrationMode.notifyChanged();
+            return deleted ? DeleteLeftResult.otherCharacterDeleted : DeleteLeftResult.markerNotFoundAndOtherCharacterDeleted;
         }
 
         if (this.buffer.length > 0) {
@@ -173,7 +211,11 @@ export class RegistrationMiniBufferEditor implements IEditor {
             this.currentCandidate = undefined;
             this.currentOkuri = "";
             this.currentSuffix = "";
-            this.buffer += converted;
+            if (this.target) {
+                this.target.insertText(converted);
+            } else {
+                this.buffer += converted;
+            }
             void this.registrationMode.notifyChanged();
         }
     }
@@ -209,8 +251,13 @@ export class RegistrationMiniBufferEditor implements IEditor {
 
     public async fixateMidashigo(): Promise<boolean> {
         if (this.inMidashigo) {
-            this.buffer += this.midashigoText;
+            const text = this.midashigoText;
             await this.clearMidashigo();
+            if (this.target) {
+                this.target.insertText(text);
+            } else {
+                this.buffer += text;
+            }
             return true;
         }
         return false;
@@ -251,7 +298,6 @@ export class RegistrationMiniBufferEditor implements IEditor {
             return false;
         }
 
-        this.buffer += textToInsert;
         this.inMidashigo = false;
         this.midashigoText = "";
         this.remainingRomaji = "";
@@ -261,6 +307,12 @@ export class RegistrationMiniBufferEditor implements IEditor {
         this.currentSuffix = "";
         this.candidateList = [];
         this.candidateAlphabetList = [];
+
+        if (this.target) {
+            this.target.insertText(textToInsert);
+        } else {
+            this.buffer += textToInsert;
+        }
         await this.registrationMode.notifyChanged();
         return true;
     }
@@ -284,7 +336,11 @@ export class RegistrationMiniBufferEditor implements IEditor {
     }
 
     public async openRegistrationEditor(yomi: string, okuri: string): Promise<void> {
-        // Recursive registration: push nested registration mode onto stack
+        if (typeof this.outerEditor.openRegistrationEditor === "function") {
+            await this.outerEditor.openRegistrationEditor(yomi, okuri);
+            return;
+        }
+        // Fallback for standalone mock editors:
         const nestedMode = new RegistrationMode(
             yomi,
             okuri,
@@ -479,6 +535,12 @@ export class RegistrationMode extends AbstractInputMode implements IInputMode {
     }
 
     public async ctrlJInput(): Promise<void> {
+        // When in AsciiMode, switch back to HiraganaMode inside registration
+        if (this.internalMode instanceof AsciiMode || this.internalMode.getContextualName() === "ascii") {
+            await this.internalMode.ctrlJInput();
+            return;
+        }
+
         // If candidate is active or in midashigo, fixate it into mini-buffer
         if (this.miniBufferEditor.getCurrentCandidate() !== undefined || this.miniBufferEditor.isInMidashigo()) {
             await this.internalMode.ctrlJInput();

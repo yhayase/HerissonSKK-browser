@@ -9,7 +9,9 @@ import { RemoteUserStore } from '@/src/storage/user-jisyo/RemoteUserStore';
 import { RuntimeMessageSync } from '@/src/storage/sync/RuntimeMessageSync';
 import { isRuntimeAvailable, sendRuntimeMessage } from '@/src/storage/rpc/runtimeClient';
 import { FloatingHUD } from '@/src/hud/FloatingHUD';
+import { RegistrationModal } from '@/src/hud/RegistrationModal';
 import { isInputElement, isTextAreaElement } from '@/src/adapter/TextInserter';
+import { getDeepActiveElement } from '@/src/adapter/DOMUtils';
 
 export class SkkContentEngine {
   public adapter: BrowserEditorAdapter;
@@ -124,12 +126,25 @@ export class SkkContentEngine {
         return;
       }
 
-      const target = document.activeElement;
+      const activeModal = RegistrationModal.getActiveModal();
+      const isModalActive = activeModal?.isOpen() ?? false;
+
+      // Focus trap for modal: prevent tabbing away from the modal dialog
+      if (isModalActive && e.key === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      const target = getDeepActiveElement(document);
       if (!this.isTargetEditable(target)) {
         return;
       }
 
-      this.adapter.setTargetElement(target);
+      if (!isModalActive) {
+        this.adapter.setTargetElement(target);
+      }
 
       // 1. Intercept Ctrl+j to toggle between AsciiMode and HiraganaMode
       const isCtrlJ =
@@ -206,6 +221,32 @@ export class SkkContentEngine {
       // Pass through other shortcuts with Ctrl/Cmd/Alt (e.g. Ctrl+Z, Ctrl+C, Ctrl+V, Ctrl+A)
       if (e.ctrlKey || e.metaKey || e.altKey) {
         return;
+      }
+
+      // Allow native caret movement & navigation keys in modal when not composing
+      if (isModalActive && mode instanceof RegistrationMode) {
+        const mb = mode.getMiniBufferEditor();
+        const isComposingInModal =
+          mb.isInMidashigo() ||
+          !!mb.getCurrentCandidate() ||
+          !!mb.getRemainingRomaji();
+
+        if (!isComposingInModal) {
+          const navKeys = [
+            'ArrowLeft',
+            'ArrowRight',
+            'ArrowUp',
+            'ArrowDown',
+            'Home',
+            'End',
+            'PageUp',
+            'PageDown',
+            'Delete',
+          ];
+          if (navKeys.includes(e.key)) {
+            return;
+          }
+        }
       }
 
       // Space
@@ -356,7 +397,10 @@ export default defineContentScript({
     );
 
     const updateActiveTarget = () => {
-      const target = document.activeElement;
+      if (RegistrationModal.getActiveModal()?.isOpen()) {
+        return;
+      }
+      const target = getDeepActiveElement(document);
       engine.adapter.setTargetElement(target);
       engine.adapter.updateHUD();
     };

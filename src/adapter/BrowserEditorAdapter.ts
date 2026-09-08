@@ -12,6 +12,10 @@ import { ZeneiMode } from "../core/skk/input-mode/ZeneiMode";
 import { AsciiMode } from "../core/skk/input-mode/AsciiMode";
 import { RegistrationMode } from "../core/skk/input-mode/henkan/RegistrationMode";
 import { FloatingHUD } from "../hud/FloatingHUD";
+import { RegistrationModal } from "../hud/RegistrationModal";
+import type { IEditorTarget, IEditorSelectionSnapshot } from "./targets/IEditorTarget";
+import { createEditorTarget } from "./targets/EditorTargetFactory";
+import { InputElementTarget } from "./targets/InputElementTarget";
 import { getActiveCaretCoordinates } from "./CaretPosition";
 import { insertText, isInputElement, isTextAreaElement, isSelectableInput } from "./TextInserter";
 
@@ -52,6 +56,10 @@ export class BrowserEditorAdapter implements IEditor {
     private registrationYomi?: string;
     private registrationOkuri?: string;
     private lastInsertedResult: { success: boolean; method: string } | null = null;
+    private registrationModal: RegistrationModal | null = null;
+    private originalEditorTarget: IEditorTarget | null = null;
+    private originalSelectionSnapshot: IEditorSelectionSnapshot | null = null;
+    private pendingRegistrationTarget: IEditorTarget | null = null;
 
     constructor(
         hud?: FloatingHUD,
@@ -151,7 +159,39 @@ export class BrowserEditorAdapter implements IEditor {
     }
 
     public setInputMode(mode: IInputMode): void {
+        const prevMode = this.currentInputMode;
         this.currentInputMode = mode;
+
+        if (prevMode instanceof RegistrationMode) {
+            const modal = this.registrationModal ?? RegistrationModal.getActiveModal();
+            if (mode instanceof RegistrationMode && mode === prevMode.getParentRegistration()) {
+                // Nested pop back to parent registration session:
+                if (modal && modal.isOpen()) {
+                    const parentInput = modal.popSession();
+                    if (parentInput) {
+                        mode.getMiniBufferEditor().setTarget(new InputElementTarget(parentInput));
+                    }
+                }
+            } else if (!(mode instanceof RegistrationMode)) {
+                // Root exit from registration (confirm, abort, or cancel):
+                const origTarget = this.originalEditorTarget ?? modal?.getOriginalTarget() ?? null;
+                const snapshot = this.originalSelectionSnapshot ?? modal?.getSelectionSnapshot() ?? null;
+                if (snapshot) {
+                    snapshot.restore();
+                }
+                if (origTarget) {
+                    origTarget.focus();
+                }
+                if (modal && modal.isOpen()) {
+                    modal.close();
+                }
+                this.pendingRegistrationTarget = origTarget;
+                this.registrationModal = null;
+                this.originalEditorTarget = null;
+                this.originalSelectionSnapshot = null;
+            }
+        }
+
         this.updateHUD();
     }
 
@@ -168,6 +208,17 @@ export class BrowserEditorAdapter implements IEditor {
             }
             this.updateHUD();
             return true;
+        }
+
+        if (this.pendingRegistrationTarget) {
+            const target = this.pendingRegistrationTarget;
+            this.pendingRegistrationTarget = null;
+            if (target.isValid()) {
+                target.focus();
+                this.lastInsertedResult = target.insertText(str);
+                this.updateHUD();
+                return true;
+            }
         }
 
         // In KakuteiMode, AsciiMode, ZeneiMode, etc.
@@ -390,7 +441,48 @@ export class BrowserEditorAdapter implements IEditor {
         const prevMode = this.currentInputMode;
         const parentReg = prevMode instanceof RegistrationMode ? prevMode : undefined;
         const regMode = new RegistrationMode(yomi, okuri, this, prevMode, parentReg);
+
+        let modal = this.registrationModal;
+        if (!modal) {
+            const active = RegistrationModal.getActiveModal();
+            const myShadow = this.hud.getShadowRoot();
+            if (active && (!myShadow || active.getShadowRoot() === myShadow)) {
+                modal = active;
+            } else if (myShadow) {
+                modal = new RegistrationModal(myShadow);
+            }
+        }
+
+        if (modal) {
+            this.registrationModal = modal;
+            if (parentReg) {
+                modal.pushSession(yomi, okuri);
+            } else {
+                if (!modal.isOpen()) {
+                    const origEl = this.getTargetElement();
+                    const origTarget = origEl ? createEditorTarget(origEl) : null;
+                    modal.open(yomi, okuri, origTarget);
+                }
+                this.originalEditorTarget = modal.getOriginalTarget();
+                this.originalSelectionSnapshot = modal.getSelectionSnapshot();
+            }
+
+            const activeInput = modal.getActiveInputElement();
+            if (activeInput) {
+                const modalTarget = new InputElementTarget(activeInput);
+                regMode.getMiniBufferEditor().setTarget(modalTarget);
+            }
+            if (modal.getOriginalTarget()) {
+                this.originalEditorTarget = modal.getOriginalTarget();
+                this.originalSelectionSnapshot = modal.getSelectionSnapshot();
+            }
+        }
+
         this.setInputMode(regMode);
+    }
+
+    public getRegistrationModal(): RegistrationModal | null {
+        return this.registrationModal ?? RegistrationModal.getActiveModal();
     }
 
     public async registerMidashigo(): Promise<void> {
@@ -398,6 +490,7 @@ export class BrowserEditorAdapter implements IEditor {
     }
 
     public async notifyModeInternalStateChanged(): Promise<void> {
+        this.pendingRegistrationTarget = null;
         this.updateHUD();
     }
 

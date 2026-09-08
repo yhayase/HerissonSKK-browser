@@ -40,6 +40,10 @@ class MockOriginalEditorTarget implements IEditorTarget {
             value: this.value,
             selectionStart: this.start,
             selectionEnd: this.end,
+            setSelectionRange: (s: number, e: number) => {
+                this.start = s;
+                this.end = e;
+            },
             focus: () => this.focus(),
             isConnected: this.isConnected,
             closest: () => null,
@@ -394,8 +398,9 @@ describe("RegistrationModal & Target Coordination (TC-MODAL-01 .. TC-MODAL-08)",
     // -------------------------------------------------------------------------
     describe("TC-MODAL-07: Modal Abort & Cancel Restoration", () => {
         it("aborts registration on empty Enter and restores previous InlineHenkan candidate", async () => {
-            await jisyoProvider.registerCandidate("てすと", new Candidate("候補1"));
+            (jisyoProvider as any).dictionary.delete("てすと");
             await jisyoProvider.registerCandidate("てすと", new Candidate("候補2"));
+            await jisyoProvider.registerCandidate("てすと", new Candidate("候補1"));
 
             const hMode = HiraganaMode.getInstance();
             adapter.setInputMode(hMode);
