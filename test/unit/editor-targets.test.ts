@@ -264,7 +264,7 @@ describe("Editor Targets Specification (TC-TARGET-01, TC-TARGET-02)", () => {
                 const el = new MockContentEditableElement();
                 el.textContent = "コンテンツエディタ";
                 const textNode = { textContent: el.textContent, isConnected: true };
-                const range = new MockDOMRange(textNode, 0, textNode, 4); // "コンテンツ"
+                const range = new MockDOMRange(textNode, 0, textNode, 5); // "コンテンツ" (5 chars)
                 mockSelection.addRange(range);
 
                 const target: IEditorTarget = new ContentEditableTarget(el as unknown as HTMLElement);

@@ -9,6 +9,7 @@ import { MenuHenkanMode } from "../../src/core/skk/input-mode/henkan/MenuHenkanM
 import { MidashigoMode } from "../../src/core/skk/input-mode/henkan/MidashigoMode";
 import { Candidate } from "../../src/core/skk/jisyo/candidate";
 import { FloatingHUD } from "../../src/hud/FloatingHUD";
+import { RegistrationModal } from "../../src/hud/RegistrationModal";
 
 // Mock DOM element for BrowserEditorAdapter tests
 class MockInputElement {
@@ -94,6 +95,7 @@ describe("SKK Registration & State Transitions Specification (docs/specs/registr
     });
 
     afterEach(() => {
+        RegistrationModal.getActiveModal()?.close();
         (globalThis as any).document = originalDocument;
         (globalThis as any).window = originalWindow;
     });

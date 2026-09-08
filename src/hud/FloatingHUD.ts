@@ -208,4 +208,8 @@ export class FloatingHUD {
   public getState(): HUDState | null {
     return this.lastState;
   }
+
+  public getShadowRoot(): ShadowRoot | null {
+    return this.shadow;
+  }
 }
