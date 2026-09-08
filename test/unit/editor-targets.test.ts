@@ -62,14 +62,21 @@ class MockDOMRange {
         this.startOffset = startOffset;
         this.endContainer = endContainer;
         this.endOffset = endOffset;
+        this.collapsed = startContainer === endContainer && startOffset === endOffset;
     }
 
-    public collapsed: boolean = false;
+    public collapsed: boolean;
     public setStartAfterCalledWith: any = null;
     public collapseCalledWith: boolean | null = null;
 
     public setStartAfter(node: any): void {
         this.setStartAfterCalledWith = node;
+    }
+
+    public setStart(node: any, offset: number): void {
+        this.startContainer = node;
+        this.startOffset = offset;
+        this.collapsed = this.startContainer === this.endContainer && this.startOffset === this.endOffset;
     }
 
     public collapse(toStart?: boolean): void {
@@ -438,6 +445,20 @@ describe("Editor Targets Specification (TC-TARGET-01, TC-TARGET-02)", () => {
                 expect(inputEvents.length).toBeGreaterThan(0);
                 expect(inputEvents[0]?.bubbles).toBe(true);
                 expect((inputEvents[0] as any).inputType).toBe("deleteContentBackward");
+            });
+
+            it("TC-TARGET-01k2: deleteLeft returns false and leaves content unchanged when caret is at offset 0", () => {
+                const el = new MockContentEditableElement();
+                el.textContent = "テスト文章";
+                const textNode = { textContent: el.textContent, isConnected: true, parentElement: el };
+                const range = new MockDOMRange(textNode, 0, textNode, 0);
+                mockSelection.addRange(range);
+
+                const target: IEditorTarget = new ContentEditableTarget(el as unknown as HTMLElement);
+                const result = target.deleteLeft();
+
+                expect(result).toBe(false);
+                expect(target.getText()).toBe("テスト文章");
             });
 
             it("TC-TARGET-01l: does not mutate or operate on selection outside this.element", () => {
