@@ -355,23 +355,6 @@ export class SkkContentEngine {
       console.error('[SKK] Keydown error:', err);
     }
   }
-
-  public async handleBeforeInput(e: InputEvent): Promise<void> {
-    const mode = this.adapter.getCurrentInputMode();
-    if (
-      mode instanceof RegistrationMode &&
-      (e.inputType === 'insertText' || e.inputType === 'insertReplacementText') &&
-      e.data
-    ) {
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      await this.enqueueKeyAction(async () => {
-        await mode.getMiniBufferEditor().insertOrReplaceSelection(e.data!);
-        this.adapter.updateHUD();
-      });
-    }
-  }
 }
 
 export default defineContentScript({
@@ -384,14 +367,6 @@ export default defineContentScript({
       'keydown',
       (e) => {
         engine.handleKeyDown(e);
-      },
-      { capture: true }
-    );
-
-    window.addEventListener(
-      'beforeinput',
-      (e) => {
-        engine.handleBeforeInput(e as InputEvent);
       },
       { capture: true }
     );
