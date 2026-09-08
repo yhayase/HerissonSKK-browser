@@ -231,9 +231,10 @@ export class IndexedDbUserStore implements IUserJisyoStorage {
     }
 
     /**
-     * Reorders candidates for a key by moving the candidate at selectedIndex to the front.
+     * Reorders candidates for a key by moving the target candidate to the front.
+     * Supports passing a Candidate object, candidate word string, or numeric index.
      */
-    public async reorderCandidate(key: string, selectedIndex: number): Promise<boolean> {
+    public async reorderCandidate(key: string, target: Candidate | string | number): Promise<boolean> {
         const db = await this.ensureInitialized();
 
         return new Promise<boolean>((resolve, reject) => {
@@ -244,12 +245,36 @@ export class IndexedDbUserStore implements IUserJisyoStorage {
 
             getReq.onsuccess = () => {
                 const record = getReq.result as StoredUserRecord | undefined;
-                if (!record || !record.candidates || selectedIndex < 0 || selectedIndex >= record.candidates.length) {
+                if (!record || !record.candidates || record.candidates.length === 0) {
                     return;
                 }
 
                 const candidates = [...record.candidates];
-                const [selected] = candidates.splice(selectedIndex, 1);
+                let foundIndex = -1;
+
+                if (typeof target === "number") {
+                    if (target >= 0 && target < candidates.length) {
+                        foundIndex = target;
+                    }
+                } else {
+                    const targetWord = typeof target === "string" ? target : target.word;
+                    const targetAnnotation = typeof target === "object" ? target.annotation : undefined;
+                    // First try exact word + annotation match if annotation is specified
+                    if (targetAnnotation !== undefined) {
+                        foundIndex = candidates.findIndex(
+                            (c) => c.word === targetWord && c.annotation === targetAnnotation
+                        );
+                    }
+                    if (foundIndex === -1) {
+                        foundIndex = candidates.findIndex((c) => c.word === targetWord);
+                    }
+                }
+
+                if (foundIndex === -1) {
+                    return;
+                }
+
+                const [selected] = candidates.splice(foundIndex, 1);
                 if (selected) {
                     candidates.unshift(selected);
                 }

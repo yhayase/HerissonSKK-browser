@@ -13,7 +13,11 @@ export class InputElementTarget implements IEditorTarget {
 
     private getSelectionStart(): number {
         try {
-            return this.element.selectionStart ?? (this.element.value?.length ?? 0);
+            const pos = this.element.selectionStart;
+            if (typeof pos === "number" && !Number.isNaN(pos)) {
+                return pos;
+            }
+            return this.element.value?.length ?? 0;
         } catch {
             return this.element.value?.length ?? 0;
         }
@@ -21,7 +25,11 @@ export class InputElementTarget implements IEditorTarget {
 
     private getSelectionEnd(): number {
         try {
-            return this.element.selectionEnd ?? (this.element.value?.length ?? 0);
+            const pos = this.element.selectionEnd;
+            if (typeof pos === "number" && !Number.isNaN(pos)) {
+                return pos;
+            }
+            return this.element.value?.length ?? 0;
         } catch {
             return this.element.value?.length ?? 0;
         }
@@ -37,15 +45,15 @@ export class InputElementTarget implements IEditorTarget {
                     return false;
                 }
                 this.focus();
-                if (typeof this.element.setSelectionRange === "function") {
-                    try {
+                try {
+                    if (typeof this.element.setSelectionRange === "function") {
                         this.element.setSelectionRange(savedStart, savedEnd);
-                    } catch {}
-                } else {
-                    try {
+                    } else {
                         this.element.selectionStart = savedStart;
                         this.element.selectionEnd = savedEnd;
-                    } catch {}
+                    }
+                } catch {
+                    // safely catch and no-op on non-selection inputs
                 }
                 return true;
             }
@@ -64,35 +72,40 @@ export class InputElementTarget implements IEditorTarget {
     public insertText(text: string): { success: boolean; method: string } {
         const start = this.getSelectionStart();
         const end = this.getSelectionEnd();
-        let method = "execCommand";
+        let method = "setRangeText";
         let inserted = false;
 
         if (typeof this.element.setRangeText === "function") {
-            this.element.setRangeText(text, start, end, "end");
-            if (typeof this.element.dispatchEvent === "function") {
-                try {
-                    this.element.dispatchEvent(new Event("input", { bubbles: true }));
-                } catch {}
+            try {
+                this.element.setRangeText(text, start, end, "end");
+                inserted = true;
+            } catch {
+                // DOMException on non-selectable inputs (e.g. email, number, url)
+                inserted = false;
             }
-        } else {
+        }
+
+        if (!inserted) {
             const val = this.element.value ?? "";
             this.element.value = val.slice(0, start) + text + val.slice(end);
             const newPos = start + text.length;
-            if (typeof this.element.setSelectionRange === "function") {
-                try {
+            try {
+                if (typeof this.element.setSelectionRange === "function") {
                     this.element.setSelectionRange(newPos, newPos);
-                } catch {}
-            } else {
-                try {
+                } else {
                     this.element.selectionStart = newPos;
                     this.element.selectionEnd = newPos;
-                } catch {}
+                }
+            } catch {
+                // safely catch on non-selection inputs
             }
-            if (typeof this.element.dispatchEvent === "function") {
-                try {
-                    this.element.dispatchEvent(new Event("input", { bubbles: true }));
-                } catch {}
-            }
+            method = "value-fallback";
+        }
+
+        if (typeof this.element.dispatchEvent === "function") {
+            try {
+                this.element.dispatchEvent(new Event("input", { bubbles: true }));
+            } catch {}
         }
 
         return { success: true, method };
@@ -106,32 +119,31 @@ export class InputElementTarget implements IEditorTarget {
             return false;
         }
 
+        const val = this.element.value ?? "";
+        if (val.length === 0) {
+            return false;
+        }
+
         if (start !== end) {
-            const val = this.element.value ?? "";
             this.element.value = val.slice(0, start) + val.slice(end);
-            if (typeof this.element.setSelectionRange === "function") {
-                try {
+            try {
+                if (typeof this.element.setSelectionRange === "function") {
                     this.element.setSelectionRange(start, start);
-                } catch {}
-            } else {
-                try {
+                } else {
                     this.element.selectionStart = start;
                     this.element.selectionEnd = start;
-                } catch {}
-            }
+                }
+            } catch {}
         } else {
-            const val = this.element.value ?? "";
             this.element.value = val.slice(0, start - 1) + val.slice(start);
-            if (typeof this.element.setSelectionRange === "function") {
-                try {
+            try {
+                if (typeof this.element.setSelectionRange === "function") {
                     this.element.setSelectionRange(start - 1, start - 1);
-                } catch {}
-            } else {
-                try {
+                } else {
                     this.element.selectionStart = start - 1;
                     this.element.selectionEnd = start - 1;
-                } catch {}
-            }
+                }
+            } catch {}
         }
 
         if (typeof this.element.dispatchEvent === "function") {
@@ -145,5 +157,15 @@ export class InputElementTarget implements IEditorTarget {
 
     public getText(): string {
         return this.element.value ?? "";
+    }
+
+    public getTextBeforeCaret(): string {
+        const start = this.getSelectionStart();
+        return (this.element.value ?? "").slice(0, start);
+    }
+
+    public getTextAfterCaret(): string {
+        const end = this.getSelectionEnd();
+        return (this.element.value ?? "").slice(end);
     }
 }

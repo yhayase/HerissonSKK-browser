@@ -45,14 +45,26 @@ class InMemoryUserStoreFallback implements IUserJisyoStorage {
         return true;
     }
 
-    async reorderCandidate(key: string, selectedIndex: number): Promise<boolean> {
+    async reorderCandidate(key: string, target: Candidate | string | number): Promise<boolean> {
         const list = this.map.get(key);
-        if (!list || selectedIndex < 0 || selectedIndex >= list.length) {
+        if (!list || list.length === 0) {
             return false;
         }
-        const [target] = list.splice(selectedIndex, 1);
-        if (target) {
-            list.unshift(target);
+        let index = -1;
+        if (typeof target === "number") {
+            if (target >= 0 && target < list.length) {
+                index = target;
+            }
+        } else {
+            const targetWord = typeof target === "string" ? target : target.word;
+            index = list.findIndex((c) => c.word === targetWord);
+        }
+        if (index === -1) {
+            return false;
+        }
+        const [selected] = list.splice(index, 1);
+        if (selected) {
+            list.unshift(selected);
         }
         return true;
     }
@@ -163,17 +175,27 @@ export class RemoteUserStore implements IUserJisyoStorage {
     }
 
     /**
-     * Reorders candidates for a key by moving the candidate at selectedIndex to the front via background.
+     * Reorders candidates for a key by moving the candidate to the front via background.
+     * Supports passing Candidate object, candidate word string, or numeric index.
      */
-    public async reorderCandidate(key: string, selectedIndex: number): Promise<boolean> {
+    public async reorderCandidate(key: string, target: Candidate | string | number): Promise<boolean> {
         if (!this.hasRuntime) {
-            return this.fallbackStore.reorderCandidate(key, selectedIndex);
+            return this.fallbackStore.reorderCandidate(key, target);
         }
 
         try {
+            const candidateData =
+                typeof target === "object"
+                    ? { word: target.word, annotation: target.annotation }
+                    : typeof target === "string"
+                    ? { word: target }
+                    : undefined;
+            const selectedIndex = typeof target === "number" ? target : undefined;
+
             const success = await this.callRpc<boolean>({
                 type: "SKK_USER_REORDER",
                 key,
+                candidate: candidateData,
                 selectedIndex,
                 senderId: this.senderId,
             });

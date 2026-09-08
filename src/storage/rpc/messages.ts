@@ -22,7 +22,7 @@ export type SkkRpcRequest =
     | { type: "SKK_JISYO_LOOKUP_PREFIX"; prefix: string; limit?: number }
     | { type: "SKK_USER_LOAD" }
     | { type: "SKK_USER_SAVE"; key: string; candidate: CandidateData; senderId?: string }
-    | { type: "SKK_USER_REORDER"; key: string; selectedIndex: number; senderId?: string }
+    | { type: "SKK_USER_REORDER"; key: string; candidate?: CandidateData | string; selectedIndex?: number; senderId?: string }
     | { type: "SKK_USER_DELETE"; key: string; candidate: CandidateData; senderId?: string }
     | { type: "SKK_USER_CLEAR"; senderId?: string }
     | { type: "SKK_USER_SAVE_ENTRIES"; entries: Record<string, CandidateData[]>; senderId?: string }

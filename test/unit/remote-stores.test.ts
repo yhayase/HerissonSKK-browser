@@ -121,13 +121,25 @@ describe("RemoteUserStore", () => {
             senderId: "tab_1",
         });
 
-        // Reorder
+        // Reorder by index
         const reorderOk = await store.reorderCandidate("にほん", 1);
         expect(reorderOk).toBe(true);
         expect(mockClient.sendMessage).toHaveBeenCalledWith({
             type: "SKK_USER_REORDER",
             key: "にほん",
+            candidate: undefined,
             selectedIndex: 1,
+            senderId: "tab_1",
+        });
+
+        // Reorder by Candidate object
+        const reorderCandOk = await store.reorderCandidate("にほん", new Candidate("日本"));
+        expect(reorderCandOk).toBe(true);
+        expect(mockClient.sendMessage).toHaveBeenCalledWith({
+            type: "SKK_USER_REORDER",
+            key: "にほん",
+            candidate: { word: "日本", annotation: undefined },
+            selectedIndex: undefined,
             senderId: "tab_1",
         });
 
@@ -152,11 +164,17 @@ describe("RemoteUserStore", () => {
 
     it("uses in-memory fallback when runtime is absent", async () => {
         const store = new RemoteUserStore();
+        await store.saveCandidate("とうきょう", new Candidate("とうきょう"));
         await store.saveCandidate("とうきょう", new Candidate("東京"));
-        const entries = await store.loadUserEntries();
-        expect(entries.get("とうきょう")?.[0]?.word).toBe("東京");
+        // Current: ["東京", "とうきょう"]
+
+        // Reorder by Candidate object
+        await store.reorderCandidate("とうきょう", new Candidate("とうきょう"));
+        const afterReorder = await store.loadUserEntries();
+        expect(afterReorder.get("とうきょう")?.map((c) => c.word)).toEqual(["とうきょう", "東京"]);
 
         await store.deleteCandidate("とうきょう", new Candidate("東京"));
+        await store.deleteCandidate("とうきょう", new Candidate("とうきょう"));
         const afterDelete = await store.loadUserEntries();
         expect(afterDelete.has("とうきょう")).toBe(false);
     });

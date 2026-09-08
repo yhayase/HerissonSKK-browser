@@ -30,12 +30,24 @@ class MockUserStorage implements IUserJisyoStorage {
         return true;
     }
 
-    async reorderCandidate(key: string, selectedIndex: number): Promise<boolean> {
+    async reorderCandidate(key: string, target: Candidate | string | number): Promise<boolean> {
         const list = this.entries.get(key);
-        if (!list || selectedIndex < 0 || selectedIndex >= list.length) {
+        if (!list || list.length === 0) {
             return false;
         }
-        const [selected] = list.splice(selectedIndex, 1);
+        let index = -1;
+        if (typeof target === "number") {
+            if (target >= 0 && target < list.length) {
+                index = target;
+            }
+        } else {
+            const targetWord = typeof target === "string" ? target : target.word;
+            index = list.findIndex((c) => c.word === targetWord);
+        }
+        if (index === -1) {
+            return false;
+        }
+        const [selected] = list.splice(index, 1);
         if (selected) {
             list.unshift(selected);
         }
@@ -195,6 +207,28 @@ describe("CompositeJisyoProvider", () => {
             expect(await provider.reorderCandidate("とうきょう", -1)).toBe(false);
             expect(await provider.reorderCandidate("とうきょう", 99)).toBe(false);
             expect(await provider.reorderCandidate("unknown", 0)).toBe(false);
+        });
+
+        it("promotes candidate by Candidate object", async () => {
+            const reordered = await provider.reorderCandidate("かんじ", new Candidate("幹事"));
+            expect(reordered).toBe(true);
+
+            const userEntries = await userStorage.loadUserEntries();
+            expect(userEntries.get("かんじ")?.[0]?.word).toBe("幹事");
+
+            const entry = await provider.lookupCandidates("かんじ");
+            expect(entry!.getCandidateList()[0]!.word).toBe("幹事");
+        });
+
+        it("promotes candidate by word string", async () => {
+            const reordered = await provider.reorderCandidate("かんじ", "感じ");
+            expect(reordered).toBe(true);
+
+            const userEntries = await userStorage.loadUserEntries();
+            expect(userEntries.get("かんじ")?.[0]?.word).toBe("感じ");
+
+            const entry = await provider.lookupCandidates("かんじ");
+            expect(entry!.getCandidateList()[0]!.word).toBe("感じ");
         });
     });
 

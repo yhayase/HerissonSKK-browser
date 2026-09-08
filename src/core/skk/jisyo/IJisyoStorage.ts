@@ -46,13 +46,14 @@ export interface IUserJisyoStorage {
     saveCandidate(key: string, candidate: Candidate): Promise<boolean>;
 
     /**
-     * Reorders candidates for a key by moving the candidate at selectedIndex to the front.
+     * Reorders candidates for a key by moving the specified candidate to the front.
+     * Supports passing a Candidate object, candidate word string, or numeric index (for backward compatibility).
      *
      * @param key The dictionary key
-     * @param selectedIndex The 0-based index of the candidate to move to front
+     * @param target The Candidate object, candidate word, or 0-based index of the candidate
      * @returns True if successfully reordered
      */
-    reorderCandidate(key: string, selectedIndex: number): Promise<boolean>;
+    reorderCandidate(key: string, target: Candidate | string | number): Promise<boolean>;
 
     /**
      * Deletes a candidate for a given key.

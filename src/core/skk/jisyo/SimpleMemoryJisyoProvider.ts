@@ -72,12 +72,22 @@ export class SimpleMemoryJisyoProvider implements IJisyoProvider {
         return true;
     }
 
-    async reorderCandidate(key: string, selectedIndex: number): Promise<boolean> {
+    async reorderCandidate(key: string, target: Candidate | string | number): Promise<boolean> {
         const candidates = this.dictionary.get(key);
-        if (!candidates || selectedIndex >= candidates.length || selectedIndex < 0) {
+        if (!candidates || candidates.length === 0) {
             return false;
         }
-        const selected = candidates.splice(selectedIndex, 1)[0];
+        let index = -1;
+        if (typeof target === "number") {
+            index = target;
+        } else {
+            const targetWord = typeof target === "string" ? target : target.word;
+            index = candidates.findIndex((c) => c.word === targetWord);
+        }
+        if (index < 0 || index >= candidates.length) {
+            return false;
+        }
+        const selected = candidates.splice(index, 1)[0];
         if (selected) {
             candidates.unshift(selected);
         }

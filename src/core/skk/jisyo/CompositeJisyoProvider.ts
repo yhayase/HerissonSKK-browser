@@ -291,15 +291,20 @@ export class CompositeJisyoProvider implements IJisyoProvider {
     }
 
     /**
-     * Reorders candidates for a key by promoting the candidate at selectedIndex to the front.
+     * Reorders candidates for a key by promoting the candidate to the front.
+     * Supports passing a Candidate object, candidate word string, or selectedIndex (for backward compatibility).
      * If the selected candidate came from system dictionary, it is learned and registered in the user dictionary.
      *
      * @param key The dictionary key
-     * @param selectedIndex The index of the selected candidate
+     * @param target The Candidate object, word string, or numeric index of the selected candidate
      * @returns True if successful
      */
-    public async reorderCandidate(key: string, selectedIndex: number): Promise<boolean> {
+    public async reorderCandidate(key: string, target: Candidate | string | number): Promise<boolean> {
         await this.ensureLoaded();
+
+        if (typeof target === "object" && target instanceof Candidate) {
+            return this.registerCandidate(key, target);
+        }
 
         const entry = await this.lookupCandidates(key);
         if (!entry) {
@@ -307,11 +312,18 @@ export class CompositeJisyoProvider implements IJisyoProvider {
         }
 
         const candidates = entry.getCandidateList();
-        if (selectedIndex < 0 || selectedIndex >= candidates.length) {
-            return false;
+        let selected: Candidate | undefined;
+
+        if (typeof target === "number") {
+            if (target >= 0 && target < candidates.length) {
+                selected = candidates[target];
+            }
+        } else if (typeof target === "string") {
+            selected = candidates.find((c) => c.word === target);
+        } else if (typeof target === "object" && (target as any).word) {
+            selected = new Candidate((target as any).word, (target as any).annotation);
         }
 
-        const selected = candidates[selectedIndex];
         if (!selected) {
             return false;
         }
