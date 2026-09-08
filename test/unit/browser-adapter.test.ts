@@ -1020,7 +1020,7 @@ describe("BrowserEditorAdapter", () => {
     });
 
     describe("Focus transition and status lifecycle", () => {
-        it("commits composition in element A when switching focus to element B", async () => {
+        it("cancels composition in element A without inserting into DOM when switching focus to element B", async () => {
             const inputA = new MockDOMElement();
             const inputB = new MockDOMElement();
             (document as any).activeElement = inputA;
@@ -1040,15 +1040,16 @@ describe("BrowserEditorAdapter", () => {
             (document as any).activeElement = inputB;
             adapter.setTargetElement(inputB as unknown as Element);
 
-            // Composition should be committed to inputA
-            expect(inputA.value).toBe("かわ");
+            // Composition should be cancelled, NOT committed to inputA
+            expect(inputA.value).toBe("");
             // Adapter should no longer be in midashigo
             expect(adapter.isInMidashigo()).toBe(false);
+            expect(adapter.getMidashigo()).toBe("");
             // inputB should be untouched
             expect(inputB.value).toBe("");
         });
 
-        it("commits active candidate in element A when switching focus to element B", async () => {
+        it("cancels active candidate in element A without inserting into DOM when switching focus to element B", async () => {
             const inputA = new MockDOMElement();
             const inputB = new MockDOMElement();
             (document as any).activeElement = inputA;
@@ -1070,14 +1071,37 @@ describe("BrowserEditorAdapter", () => {
             (document as any).activeElement = inputB;
             adapter.setTargetElement(inputB as unknown as Element);
 
-            // Candidate committed into inputA
-            expect(inputA.value).toBe("漢字");
+            // Candidate cancelled, NOT committed into inputA
+            expect(inputA.value).toBe("");
             expect(adapter.getCurrentCandidate()).toBeUndefined();
             expect(adapter.isInMidashigo()).toBe(false);
             expect(inputB.value).toBe("");
         });
 
-        it("hides HUD when focus switches to uneditable element (e.g. document body)", async () => {
+        it("cancels pending romaji without inserting into DOM when switching focus to element B", async () => {
+            const inputA = new MockDOMElement();
+            const inputB = new MockDOMElement();
+            (document as any).activeElement = inputA;
+
+            adapter.setTargetElement(inputA as unknown as Element);
+            adapter.setInputMode(HiraganaMode.getInstance());
+
+            // Type 'n' -> pending romaji 'n'
+            await adapter.getCurrentInputMode().lowerAlphabetInput("n");
+            expect(adapter.getRemainingRomaji()).toBe("n");
+            expect(inputA.value).toBe("");
+
+            // Focus switches to inputB
+            (document as any).activeElement = inputB;
+            adapter.setTargetElement(inputB as unknown as Element);
+
+            // Romaji should be cancelled without being converted to 'ん' or committed
+            expect(inputA.value).toBe("");
+            expect(adapter.getRemainingRomaji()).toBe("");
+            expect(inputB.value).toBe("");
+        });
+
+        it("cancels composition in element A and hides HUD when focus switches to uneditable element (e.g. document body)", async () => {
             const inputA = new MockDOMElement();
             const bodyEl = { tagName: "BODY", isContentEditable: false, closest: () => null };
             (document as any).activeElement = inputA;
@@ -1096,8 +1120,8 @@ describe("BrowserEditorAdapter", () => {
             adapter.setTargetElement(bodyEl as any);
             adapter.updateHUD();
 
-            // InputA got committed
-            expect(inputA.value).toBe("か");
+            // InputA is clean (uncommitted composition cancelled)
+            expect(inputA.value).toBe("");
             // HUD is hidden
             expect(hud.getVisible()).toBe(false);
         });

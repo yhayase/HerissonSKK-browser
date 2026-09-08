@@ -99,14 +99,18 @@ export class BrowserEditorAdapter implements IEditor {
         const newEl = typeof target === "function" ? target() : target;
         const prevEl = this.activeEditorElement ?? this.getTargetElement();
 
-        if (prevEl && prevEl !== newEl && !(this.currentInputMode instanceof RegistrationMode)) {
+        if (prevEl && prevEl !== newEl) {
+            if (this.currentInputMode instanceof RegistrationMode) {
+                void this.currentInputMode.cancelRegistration();
+            }
+
             const hasComposition =
                 this.inMidashigo ||
                 this.currentCandidate !== undefined ||
                 this.remainingRomaji.length > 0;
 
-            if (hasComposition && isTargetEditable(prevEl)) {
-                void this.commitComposition(prevEl);
+            if (hasComposition) {
+                void this.cancelComposition();
             }
         }
 
@@ -114,41 +118,7 @@ export class BrowserEditorAdapter implements IEditor {
         this.activeEditorElement = newEl;
     }
 
-    public async commitComposition(targetEl?: Element | null): Promise<void> {
-        const target = targetEl ?? this.getTargetElement();
-        let textToInsert = "";
-
-        if (this.currentCandidate) {
-            textToInsert = this.currentCandidate.word + this.currentOkuri + this.currentSuffix;
-        } else if (this.inMidashigo) {
-            let midashigo = this.midashigoText;
-            if (this.remainingRomaji) {
-                const kana = wanakana.toKana(this.remainingRomaji);
-                if (kana && kana !== this.remainingRomaji) {
-                    midashigo += kana;
-                }
-            }
-            textToInsert = midashigo;
-        } else if (this.remainingRomaji) {
-            const kana = wanakana.toKana(this.remainingRomaji);
-            if (kana && kana !== this.remainingRomaji) {
-                textToInsert = kana;
-            }
-        }
-
-        if (textToInsert && target) {
-            const editorTarget = createEditorTarget(target);
-            if (editorTarget) {
-                editorTarget.insertText(textToInsert);
-            } else {
-                this.insertToDom(textToInsert);
-            }
-        }
-
-        if (this.currentInputMode instanceof AbstractKanaMode) {
-            this.currentInputMode.setHenkanMode(KakuteiMode.create(this.currentInputMode, this));
-        }
-
+    public async cancelComposition(): Promise<void> {
         this.inMidashigo = false;
         this.midashigoText = "";
         this.remainingRomaji = "";
@@ -160,6 +130,13 @@ export class BrowserEditorAdapter implements IEditor {
         this.candidateAlphabetList = [];
         if (this.lastStatus.startsWith("[辞書登録:")) {
             this.lastStatus = "";
+        }
+
+        if (this.currentInputMode instanceof AbstractKanaMode) {
+            const kakuteiMode = KakuteiMode.create(this.currentInputMode, this);
+            kakuteiMode.reset();
+            this.currentInputMode.setHenkanMode(kakuteiMode);
+            await this.currentInputMode.reset();
         }
     }
 
