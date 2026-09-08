@@ -451,7 +451,7 @@ export class BrowserEditorAdapter implements IEditor {
         if (!modal) {
             const active = RegistrationModal.getActiveModal();
             const myShadow = this.hud.getShadowRoot();
-            if (active && (!myShadow || active.getShadowRoot() === myShadow)) {
+            if (active && myShadow && active.getShadowRoot() === myShadow) {
                 modal = active;
             } else if (myShadow) {
                 modal = new RegistrationModal(myShadow);
@@ -491,7 +491,7 @@ export class BrowserEditorAdapter implements IEditor {
     }
 
     public getRegistrationModal(): RegistrationModal | null {
-        return this.registrationModal ?? RegistrationModal.getActiveModal();
+        return this.registrationModal;
     }
 
     public async registerMidashigo(): Promise<void> {
@@ -548,11 +548,13 @@ export class BrowserEditorAdapter implements IEditor {
         let candidateText: string | undefined = undefined;
         let statusText: string = "";
 
+        const modal = this.registrationModal;
+
         if (this.currentInputMode instanceof RegistrationMode) {
             const regMode = this.currentInputMode;
             const mb = regMode.getMiniBufferEditor();
             const prompt = regMode.getPromptHeader();
-            let mbPreedit = mb.getCommittedText();
+            let mbPreedit = "";
 
             if (mb.getCurrentCandidate()) {
                 const cand = mb.getCurrentCandidate();
@@ -565,7 +567,6 @@ export class BrowserEditorAdapter implements IEditor {
             } else if (mb.getRemainingRomaji()) {
                 mbPreedit += mb.getRemainingRomaji();
             }
-            preeditStr = prompt + mbPreedit;
 
             const candList = mb.getCandidateList();
             if (candList.selectionKeys.length > 0) {
@@ -577,6 +578,23 @@ export class BrowserEditorAdapter implements IEditor {
             } else {
                 statusText = this.lastStatus || "";
             }
+
+            if (modal && modal.isOpen()) {
+                let internalBadge = "かな";
+                const internalMode = regMode.getInternalMode();
+                if (internalMode instanceof KatakanaMode) internalBadge = "カナ";
+                else if (internalMode instanceof ZeneiMode) internalBadge = "全英";
+                else if (internalMode instanceof AsciiMode) internalBadge = "アスキー";
+
+                modal.updateStatus({
+                    mode: internalBadge,
+                    preedit: mbPreedit,
+                    candidate: candidateText,
+                    statusText: statusText || undefined
+                });
+            }
+
+            preeditStr = prompt + mb.getCommittedText() + mbPreedit;
         } else {
             if (this.currentCandidate) {
                 preeditStr = this.remainingRomaji ? this.remainingRomaji : "";
@@ -606,6 +624,10 @@ export class BrowserEditorAdapter implements IEditor {
             candidate: candidateText,
             status: statusText || undefined
         });
+
+        if (modal && modal.isOpen()) {
+            this.hud.hide();
+        }
     }
 
     // --- Private DOM Insertion / Deletion ---
