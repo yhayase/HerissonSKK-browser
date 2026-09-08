@@ -637,7 +637,17 @@ export class RegistrationMode extends AbstractInputMode implements IInputMode {
         }
 
         const candidate = new Candidate(stem);
-        await this.outerEditor.getJisyoProvider().registerCandidate(this.yomi, candidate);
+        let success = false;
+        try {
+            success = await this.outerEditor.getJisyoProvider().registerCandidate(this.yomi, candidate);
+        } catch {
+            success = false;
+        }
+
+        if (!success) {
+            this.outerEditor.showErrorMessage("辞書登録に失敗しました");
+            return;
+        }
 
         if (this.parentRegistration) {
             // Nested: pop stack to parent registration and insert word into parent mini-buffer

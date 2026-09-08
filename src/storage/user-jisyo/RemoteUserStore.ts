@@ -158,7 +158,7 @@ export class RemoteUserStore implements IUserJisyoStorage {
             return Boolean(success);
         } catch (err) {
             console.error(`[RemoteUserStore] Failed to save candidate for "${key}":`, err);
-            return this.fallbackStore.saveCandidate(key, candidate);
+            return false;
         }
     }
 
@@ -180,7 +180,7 @@ export class RemoteUserStore implements IUserJisyoStorage {
             return Boolean(success);
         } catch (err) {
             console.error(`[RemoteUserStore] Failed to reorder candidate for "${key}":`, err);
-            return this.fallbackStore.reorderCandidate(key, selectedIndex);
+            return false;
         }
     }
 
@@ -202,7 +202,7 @@ export class RemoteUserStore implements IUserJisyoStorage {
             return Boolean(success);
         } catch (err) {
             console.error(`[RemoteUserStore] Failed to delete candidate for "${key}":`, err);
-            return this.fallbackStore.deleteCandidate(key, candidate);
+            return false;
         }
     }
 
@@ -229,9 +229,7 @@ export class RemoteUserStore implements IUserJisyoStorage {
             return Boolean(success);
         } catch (err) {
             console.error("[RemoteUserStore] Failed to bulk save entries via RPC:", err);
-            return this.fallbackStore.saveUserEntries
-                ? this.fallbackStore.saveUserEntries(entries)
-                : false;
+            return false;
         }
     }
 
@@ -251,7 +249,7 @@ export class RemoteUserStore implements IUserJisyoStorage {
             return Boolean(success);
         } catch (err) {
             console.error("[RemoteUserStore] Failed to clear user store via RPC:", err);
-            return this.fallbackStore.clear ? this.fallbackStore.clear() : false;
+            return false;
         }
     }
 }

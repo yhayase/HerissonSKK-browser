@@ -5,6 +5,7 @@ import { EditorFactory } from "../core/skk/editor/EditorFactory";
 import type { IJisyoProvider } from "../core/skk/jisyo/IJisyoProvider";
 import { SimpleMemoryJisyoProvider } from "../core/skk/jisyo/SimpleMemoryJisyoProvider";
 import { Candidate } from "../core/skk/jisyo/candidate";
+import type { Entry } from "../core/skk/jisyo/entry";
 import type { IInputMode } from "../core/skk/input-mode/IInputMode";
 import { HiraganaMode } from "../core/skk/input-mode/HiraganaMode";
 import { KatakanaMode } from "../core/skk/input-mode/KatakanaMode";
@@ -41,6 +42,9 @@ export class BrowserEditorAdapter implements IEditor {
     private jisyoProvider: IJisyoProvider;
     private targetSupplier?: TargetElementSupplier;
     private currentInputMode: IInputMode;
+
+    // Composition session/generation counter to discard delayed/in-flight async lookups
+    private currentCompositionSession: number = 0;
 
     // In-memory SKK preedit and conversion state
     private inMidashigo: boolean = false;
@@ -99,7 +103,8 @@ export class BrowserEditorAdapter implements IEditor {
         const newEl = typeof target === "function" ? target() : target;
         const prevEl = this.activeEditorElement ?? this.getTargetElement();
 
-        if (prevEl && prevEl !== newEl) {
+        if (prevEl !== newEl) {
+            this.currentCompositionSession++;
             if (this.currentInputMode instanceof RegistrationMode) {
                 void this.currentInputMode.cancelRegistration();
             }
@@ -119,6 +124,7 @@ export class BrowserEditorAdapter implements IEditor {
     }
 
     public async cancelComposition(): Promise<void> {
+        this.currentCompositionSession++;
         this.inMidashigo = false;
         this.midashigoText = "";
         this.remainingRomaji = "";
@@ -195,10 +201,53 @@ export class BrowserEditorAdapter implements IEditor {
         return this.registrationOkuri;
     }
 
+    public getCurrentCompositionSession(): number {
+        return this.currentCompositionSession;
+    }
+
+    public advanceCompositionSession(): number {
+        return ++this.currentCompositionSession;
+    }
+
+    public async requestCandidates(key: string): Promise<Entry | undefined> {
+        const session = this.currentCompositionSession;
+        const entry = await this.jisyoProvider.lookupCandidates(key);
+        if (session !== this.currentCompositionSession) {
+            return undefined;
+        }
+        return entry;
+    }
+
+    public async startHenkan(key?: string): Promise<Entry | undefined> {
+        const lookupKey = key ?? this.midashigoText;
+        if (!lookupKey) {
+            return undefined;
+        }
+        const session = this.currentCompositionSession;
+        const entry = await this.jisyoProvider.lookupCandidates(lookupKey);
+        if (session !== this.currentCompositionSession) {
+            return undefined;
+        }
+        return entry;
+    }
+
+    public async lookupCandidates(key: string): Promise<Entry | undefined> {
+        return this.requestCandidates(key);
+    }
+
     // --- IEditor Implementation ---
 
     public getJisyoProvider(): IJisyoProvider {
-        return this.jisyoProvider;
+        const self = this;
+        return new Proxy(this.jisyoProvider, {
+            get(target, prop, receiver) {
+                if (prop === "lookupCandidates") {
+                    return (key: string) => self.requestCandidates(key);
+                }
+                const val = Reflect.get(target, prop, receiver);
+                return typeof val === "function" ? val.bind(target) : val;
+            }
+        });
     }
 
     public setJisyoProvider(provider: IJisyoProvider): void {
@@ -366,6 +415,7 @@ export class BrowserEditorAdapter implements IEditor {
     }
 
     public async clearMidashigo(): Promise<boolean> {
+        this.currentCompositionSession++;
         this.inMidashigo = false;
         this.midashigoText = "";
         this.remainingRomaji = "";

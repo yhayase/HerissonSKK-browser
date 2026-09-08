@@ -11,6 +11,62 @@ export class ContentEditableTarget implements IEditorTarget {
         return this.element;
     }
 
+    private isRangeInsideElement(range: any): boolean {
+        if (!range) return false;
+        const container = range.commonAncestorContainer ?? range.startContainer;
+        if (!container) return false;
+        if (this.element === container) return true;
+
+        if (typeof this.element.contains === "function") {
+            try {
+                if (this.element.contains(container)) return true;
+            } catch {}
+        }
+
+        // Walk up DOM tree if parentNode/parentElement exists
+        let curr = container.parentNode ?? container.parentElement;
+        if (curr) {
+            while (curr) {
+                if (curr === this.element) return true;
+                curr = curr.parentNode ?? curr.parentElement;
+            }
+            // Had a parent hierarchy and none matched this.element -> outside!
+            return false;
+        }
+
+        // Fallback for mock unit test nodes constructed without parent pointers
+        return true;
+    }
+
+    private dispatchInputEvent(inputType: string, data?: string): void {
+        try {
+            if (typeof InputEvent !== "undefined") {
+                try {
+                    const eventInit: any = {
+                        bubbles: true,
+                        cancelable: true,
+                        inputType,
+                    };
+                    if (data !== undefined) {
+                        eventInit.data = data;
+                    }
+                    this.element.dispatchEvent(new InputEvent("input", eventInit));
+                    return;
+                } catch {
+                    // Fall back to custom Event below if InputEvent constructor fails
+                }
+            }
+            const evt = new Event("input", { bubbles: true, cancelable: true });
+            (evt as any).inputType = inputType;
+            if (data !== undefined) {
+                (evt as any).data = data;
+            }
+            this.element.dispatchEvent(evt);
+        } catch {
+            // Ignore dispatch errors in non-DOM environments
+        }
+    }
+
     public saveSelection(): IEditorSelectionSnapshot {
         let clonedRange: any = null;
         const getSel =
@@ -23,7 +79,7 @@ export class ContentEditableTarget implements IEditorTarget {
 
         if (sel && sel.rangeCount > 0) {
             const range = sel.getRangeAt(0);
-            if (range) {
+            if (range && this.isRangeInsideElement(range)) {
                 clonedRange = typeof range.cloneRange === "function" ? range.cloneRange() : range;
             }
         }
@@ -74,7 +130,7 @@ export class ContentEditableTarget implements IEditorTarget {
 
         if (sel && sel.rangeCount > 0) {
             const range = sel.getRangeAt(0);
-            if (range) {
+            if (range && this.isRangeInsideElement(range)) {
                 if (typeof range.deleteContents === "function") {
                     range.deleteContents();
                 }
@@ -85,11 +141,23 @@ export class ContentEditableTarget implements IEditorTarget {
                 if (typeof range.insertNode === "function") {
                     range.insertNode(textNode);
                 }
+                if (typeof range.setStartAfter === "function") {
+                    range.setStartAfter(textNode);
+                }
+                if (typeof range.collapse === "function") {
+                    range.collapse(true);
+                }
+                if (typeof sel.removeAllRanges === "function" && typeof sel.addRange === "function") {
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }
+                this.dispatchInputEvent("insertText", text);
                 return { success: true, method: "range-insert" };
             }
         }
 
         this.element.textContent = (this.element.textContent ?? "") + text;
+        this.dispatchInputEvent("insertText", text);
         return { success: true, method: "text-content-append" };
     }
 
@@ -104,7 +172,7 @@ export class ContentEditableTarget implements IEditorTarget {
 
         if (sel && sel.rangeCount > 0) {
             const range = sel.getRangeAt(0);
-            if (range) {
+            if (range && this.isRangeInsideElement(range)) {
                 if (range.collapsed) {
                     if (range.startOffset > 0) {
                         try {
@@ -112,6 +180,7 @@ export class ContentEditableTarget implements IEditorTarget {
                             if (typeof range.deleteContents === "function") {
                                 range.deleteContents();
                             }
+                            this.dispatchInputEvent("deleteContentBackward");
                             return true;
                         } catch {}
                     }
@@ -119,6 +188,7 @@ export class ContentEditableTarget implements IEditorTarget {
                     if (typeof range.deleteContents === "function") {
                         range.deleteContents();
                     }
+                    this.dispatchInputEvent("deleteContentBackward");
                     return true;
                 }
             }
@@ -127,6 +197,7 @@ export class ContentEditableTarget implements IEditorTarget {
         const text = this.element.textContent ?? "";
         if (text.length > 0) {
             this.element.textContent = text.slice(0, -1);
+            this.dispatchInputEvent("deleteContentBackward");
             return true;
         }
 

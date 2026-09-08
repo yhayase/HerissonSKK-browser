@@ -103,10 +103,42 @@ describe("SkkContentEngine verified findings", () => {
     });
   });
 
-  describe("handleKeyDown - IME composition guard", () => {
+  describe("handleKeyDown - Security isTrusted guard & IME composition guard", () => {
+    it("ignores synthetic/untrusted keydown when e.isTrusted is false", async () => {
+      const setTargetSpy = vi.spyOn(engine.adapter, "setTargetElement");
+      const event = {
+        isTrusted: false,
+        isComposing: false,
+        keyCode: 74,
+        ctrlKey: true,
+        altKey: false,
+        shiftKey: false,
+        key: "j",
+      } as any;
+
+      await engine.handleKeyDown(event);
+      expect(setTargetSpy).not.toHaveBeenCalled();
+    });
+
+    it("ignores synthetic/untrusted keydown when e.isTrusted is undefined", async () => {
+      const setTargetSpy = vi.spyOn(engine.adapter, "setTargetElement");
+      const event = {
+        isComposing: false,
+        keyCode: 74,
+        ctrlKey: true,
+        altKey: false,
+        shiftKey: false,
+        key: "j",
+      } as any;
+
+      await engine.handleKeyDown(event);
+      expect(setTargetSpy).not.toHaveBeenCalled();
+    });
+
     it("ignores keydown when e.isComposing is true", async () => {
       const setTargetSpy = vi.spyOn(engine.adapter, "setTargetElement");
       const event = {
+        isTrusted: true,
         isComposing: true,
         keyCode: 0,
         ctrlKey: true,
@@ -122,6 +154,7 @@ describe("SkkContentEngine verified findings", () => {
     it("ignores keydown when e.keyCode is 229", async () => {
       const setTargetSpy = vi.spyOn(engine.adapter, "setTargetElement");
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 229,
         ctrlKey: true,
@@ -157,6 +190,7 @@ describe("SkkContentEngine verified findings", () => {
     it("does not intercept Ctrl+Shift+J (DevTools console shortcut)", async () => {
       const preventDefault = vi.fn();
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 74,
         ctrlKey: true,
@@ -178,6 +212,7 @@ describe("SkkContentEngine verified findings", () => {
       engine.adapter.setInputMode(HiraganaMode.getInstance());
       const preventDefault = vi.fn();
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 71,
         ctrlKey: true,
@@ -218,6 +253,7 @@ describe("SkkContentEngine verified findings", () => {
     it("switches from AsciiMode to HiraganaMode", async () => {
       expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(AsciiMode);
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 74,
         ctrlKey: true,
@@ -237,6 +273,7 @@ describe("SkkContentEngine verified findings", () => {
     it("maintains HiraganaMode when idle upon pressing Ctrl+J", async () => {
       engine.adapter.setInputMode(HiraganaMode.getInstance());
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 74,
         ctrlKey: true,
@@ -264,6 +301,7 @@ describe("SkkContentEngine verified findings", () => {
       expect(engine.adapter.isInMidashigo()).toBe(true);
 
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 74,
         ctrlKey: true,
@@ -283,6 +321,7 @@ describe("SkkContentEngine verified findings", () => {
     it("switches from KatakanaMode to HiraganaMode when idle (does NOT switch to AsciiMode)", async () => {
       engine.adapter.setInputMode(KatakanaMode.getInstance());
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 74,
         ctrlKey: true,
@@ -308,6 +347,7 @@ describe("SkkContentEngine verified findings", () => {
       expect(engine.adapter.isInMidashigo()).toBe(true);
 
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 74,
         ctrlKey: true,
@@ -327,6 +367,7 @@ describe("SkkContentEngine verified findings", () => {
     it("switches from ZeneiMode to HiraganaMode when idle", async () => {
       engine.adapter.setInputMode(ZeneiMode.getInstance());
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 74,
         ctrlKey: true,
@@ -352,6 +393,7 @@ describe("SkkContentEngine verified findings", () => {
       });
 
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 65,
         key: "a",
@@ -391,6 +433,7 @@ describe("SkkContentEngine verified findings", () => {
       const stopImmediatePropagation = vi.fn();
 
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 13,
         key: "Enter",
@@ -418,6 +461,7 @@ describe("SkkContentEngine verified findings", () => {
       const stopImmediatePropagation = vi.fn();
 
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 13,
         key: "Enter",
@@ -445,6 +489,7 @@ describe("SkkContentEngine verified findings", () => {
       const stopImmediatePropagation = vi.fn();
 
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 13,
         key: "Enter",
@@ -472,6 +517,7 @@ describe("SkkContentEngine verified findings", () => {
       const stopImmediatePropagation = vi.fn();
 
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 13,
         key: "Enter",
@@ -521,6 +567,7 @@ describe("SkkContentEngine verified findings", () => {
       expect(engine.hud.getVisible()).toBe(true);
 
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 76,
         key: "l",
@@ -540,6 +587,7 @@ describe("SkkContentEngine verified findings", () => {
       expect(engine.hud.getVisible()).toBe(true);
 
       const event = {
+        isTrusted: true,
         isComposing: false,
         keyCode: 74,
         ctrlKey: true,
@@ -555,6 +603,48 @@ describe("SkkContentEngine verified findings", () => {
       await engine.handleKeyDown(event);
       expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(HiraganaMode);
       expect(engine.hud.getVisible()).toBe(true);
+    });
+  });
+
+  describe("enqueueKeyAction - serialized execution without dropping keystrokes", () => {
+    it("processes all enqueued keystrokes in order even when composition session resets internally", async () => {
+      const mockInput = {
+        tagName: "INPUT",
+        type: "text",
+        readOnly: false,
+        disabled: false,
+        value: "",
+        selectionStart: 0,
+        selectionEnd: 0,
+        setSelectionRange: vi.fn(),
+        dispatchEvent: vi.fn(),
+        getBoundingClientRect: () => ({ left: 10, top: 20, right: 100, bottom: 40, width: 90, height: 20 }),
+      };
+      (globalThis as any).document.activeElement = mockInput;
+      engine.adapter.setInputMode(HiraganaMode.getInstance());
+
+      const createKey = (key: string, keyCode: number, code?: string) =>
+        ({
+          isTrusted: true,
+          isComposing: false,
+          keyCode,
+          key,
+          code: code ?? `Key${key.toUpperCase()}`,
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+          stopImmediatePropagation: vi.fn(),
+        } as any);
+
+      // Rapid typing: 'A' (enter midashigo "▽あ"), 'Backspace' (clear midashigo), 'k', 'a'
+      const p1 = engine.handleKeyDown(createKey("A", 65));
+      const p2 = engine.handleKeyDown(createKey("Backspace", 8, "Backspace"));
+      const p3 = engine.handleKeyDown(createKey("k", 75));
+      const p4 = engine.handleKeyDown(createKey("a", 65));
+
+      await Promise.all([p1, p2, p3, p4]);
+
+      // 'k' and 'a' must NOT be dropped, resulting in "か" inserted into the document
+      expect(mockInput.value).toBe("か");
     });
   });
 });
