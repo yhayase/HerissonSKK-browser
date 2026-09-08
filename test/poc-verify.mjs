@@ -72,6 +72,25 @@ async function runVerification(port) {
   const hudHost = await page.waitForSelector('#skk-browser-ext-hud-root', { timeout: 5000 });
   console.log(`[Check 1] Content script HUD injected: ${!!hudHost}`);
 
+  console.log('[Check 1.5] Waiting for dictionary initialization...');
+  await page.waitForSelector('html[data-skk-initialized="true"]', { timeout: 15000 });
+  console.log('[Check 1.5] Dictionary initialization completed.');
+
+  const waitForCandidate = async () => {
+    return page.waitForFunction(() => {
+      const host = document.getElementById('skk-browser-ext-hud-root');
+      const cand = host?.shadowRoot?.querySelector('.skk-candidate')?.textContent?.trim();
+      return cand && cand.length > 0;
+    }, { timeout: 5000 });
+  };
+
+  const waitForBadge = async (expected) => {
+    return page.waitForFunction((exp) => {
+      const host = document.getElementById('skk-browser-ext-hud-root');
+      const badge = host?.shadowRoot?.querySelector('.skk-mode-badge')?.textContent?.trim();
+      return badge === exp;
+    }, { timeout: 5000 }, expected);
+  };
 
   // --- Test 1: Standard <input> ---
   // Ctrl+j -> type Nihon -> Space -> 日本 -> Enter (verify value: '日本')
@@ -110,6 +129,7 @@ async function runVerification(port) {
 
   // Space to convert -> 日本
   await page.keyboard.press('Space');
+  await waitForCandidate();
   let candidate = await page.evaluate(() => {
     const host = document.getElementById('skk-browser-ext-hud-root');
     return host?.shadowRoot?.querySelector('.skk-candidate')?.textContent;
@@ -143,14 +163,14 @@ async function runVerification(port) {
   await page.keyboard.up('Shift');
   await page.keyboard.type('u');
 
+  await waitForCandidate();
   candidate = await page.evaluate(() => {
     const host = document.getElementById('skk-browser-ext-hud-root');
     return host?.shadowRoot?.querySelector('.skk-candidate')?.textContent;
   });
   console.log(`[Textarea] Candidate in HUD for okuri-ari 'Ik': "${candidate}"`);
 
-  // Space & Enter to commit candidate
-  await page.keyboard.press('Space');
+  // Enter to commit candidate
   await page.keyboard.press('Enter');
 
   const taValue = await page.$eval('#textarea-test', (el) => el.value);
@@ -175,6 +195,7 @@ async function runVerification(port) {
 
   // 'q' switches to Katakana mode
   await page.keyboard.press('KeyQ');
+  await waitForBadge('カナ');
 
   const katakanaBadge = await page.evaluate(() => {
     const host = document.getElementById('skk-browser-ext-hud-root');
@@ -195,6 +216,7 @@ async function runVerification(port) {
   console.log(`[ContentEditable] Preedit in HUD: "${preedit}"`);
 
   await page.keyboard.press('Space');
+  await waitForCandidate();
 
   candidate = await page.evaluate(() => {
     const host = document.getElementById('skk-browser-ext-hud-root');
@@ -252,6 +274,7 @@ async function runVerification(port) {
   await page.keyboard.up('Shift');
   await page.keyboard.type('ihon');
   await page.keyboard.press('Space');
+  await waitForCandidate();
   await page.keyboard.press('Enter');
 
   const monacoText = await page.evaluate(() => window.monacoEditor.getValue());
@@ -270,6 +293,78 @@ async function runVerification(port) {
   const monacoAfterUndo = await page.evaluate(() => window.monacoEditor.getValue());
   console.log(`[Monaco] Text after Undo (Ctrl+Z):\n${monacoAfterUndo}`);
 
+  // --- Test 5: Inline Dictionary Registration & Learning ---
+  console.log('\n--- Testing Inline Dictionary Registration & Learning ---');
+  await page.focus('#input-test');
+  await page.$eval('#input-test', (el) => (el.value = ''));
+
+  // Ensure Hiragana mode
+  await page.keyboard.down('Control');
+  await page.keyboard.press('KeyJ');
+  await page.keyboard.up('Control');
+
+  // Type unregistered midashigo: Kawasaki (Shift+K, awasaki) -> Space
+  await page.keyboard.down('Shift');
+  await page.keyboard.press('KeyK');
+  await page.keyboard.up('Shift');
+  await page.keyboard.type('awasaki');
+  await page.keyboard.press('Space');
+
+  // Verify HUD badge is '辞書登録'
+  await waitForBadge('辞書登録');
+  const regBadge = await page.evaluate(() => {
+    const host = document.getElementById('skk-browser-ext-hud-root');
+    return host?.shadowRoot?.querySelector('.skk-mode-badge')?.textContent;
+  });
+  console.log(`[Registration] HUD mode badge after Space on unregistered word: "${regBadge}"`);
+
+  // Type candidate '川崎市'
+  await page.keyboard.type('川崎市');
+
+  const regPreedit = await page.evaluate(() => {
+    const host = document.getElementById('skk-browser-ext-hud-root');
+    return host?.shadowRoot?.querySelector('.skk-preedit')?.textContent;
+  });
+  console.log(`[Registration] HUD preedit: "${regPreedit}"`);
+
+  // Press Enter to commit registration
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(
+    () => document.getElementById('input-test')?.value?.includes('川崎市'),
+    { timeout: 5000 }
+  );
+
+  const registeredValue = await page.$eval('#input-test', (el) => el.value);
+  console.log(`[Registration] Value after registration: "${registeredValue}"`);
+
+  // Clear input and convert 'Kawasaki' a 2nd time to verify persistence & learning
+  await page.$eval('#input-test', (el) => (el.value = ''));
+  await page.waitForFunction(
+    () => document.getElementById('input-test')?.value === '',
+    { timeout: 5000 }
+  );
+
+  await page.keyboard.down('Shift');
+  await page.keyboard.press('KeyK');
+  await page.keyboard.up('Shift');
+  await page.keyboard.type('awasaki');
+  await page.keyboard.press('Space');
+
+  await waitForCandidate();
+  const learnedCandidate = await page.evaluate(() => {
+    const host = document.getElementById('skk-browser-ext-hud-root');
+    return host?.shadowRoot?.querySelector('.skk-candidate')?.textContent;
+  });
+  console.log(`[Learning] Candidate for 'Kawasaki' on 2nd conversion: "${learnedCandidate}"`);
+
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(
+    () => document.getElementById('input-test')?.value === '川崎市',
+    { timeout: 5000 }
+  );
+  const finalLearnedValue = await page.$eval('#input-test', (el) => el.value);
+  console.log(`[Learning] Final value after 2nd conversion: "${finalLearnedValue}"`);
+
   // Save verification screenshot
   const screenshotPath = path.resolve(ROOT, 'poc-screenshot.png');
   await page.screenshot({ path: screenshotPath });
@@ -282,14 +377,20 @@ async function runVerification(port) {
   const taOk = taValue.includes('行く');
   const ceOk = ceValue.includes('漢字');
   const monacoOk = monacoText.includes('日本') && !monacoAfterUndo.includes('日本');
+  const regOk =
+    regBadge === '辞書登録' &&
+    registeredValue.includes('川崎市') &&
+    learnedCandidate?.includes('川崎市') &&
+    finalLearnedValue.includes('川崎市');
 
   console.log('\n--- Assertion Summary ---');
   console.log(`1. Standard <input>: ${inputOk ? 'PASSED ✅' : 'FAILED ❌'}`);
   console.log(`2. Standard <textarea>: ${taOk ? 'PASSED ✅' : 'FAILED ❌'}`);
   console.log(`3. ContentEditable: ${ceOk ? 'PASSED ✅' : 'FAILED ❌'}`);
   console.log(`4. Monaco Editor (VS Code): ${monacoOk ? 'PASSED ✅' : 'FAILED ❌'}`);
+  console.log(`5. Inline Registration & Learning: ${regOk ? 'PASSED ✅' : 'FAILED ❌'}`);
 
-  if (inputOk && taOk && ceOk && monacoOk) {
+  if (inputOk && taOk && ceOk && monacoOk && regOk) {
     console.log('\n🎉 ALL SKK ENGINE VERIFICATION TESTS PASSED SUCCESSFULLY! 🎉');
   } else {
     throw new Error('Some verification tests failed.');

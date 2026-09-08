@@ -4,6 +4,8 @@ import type { IInputMode } from "./IInputMode";
 import type { AbstractHenkanMode } from "./henkan/AbstractHenkanMode";
 import { KakuteiMode } from "./henkan/KakuteiMode";
 
+import type { IEditor } from "../editor/IEditor";
+
 /**
  * Parent abstract class of Hiragana and Katakana input modes.
  * This class contains common methods and properties of Hiragana and Katakana input modes.
@@ -13,7 +15,16 @@ export abstract class AbstractKanaMode extends AbstractInputMode {
     protected abstract getKanaModeBaseName(): string; // e.g., "hiragana", "katakana"
     abstract newRomajiInput(): RomajiInput;
 
-    private henkanMode: AbstractHenkanMode = new KakuteiMode(this, this.editor);
+    private henkanMode: AbstractHenkanMode;
+
+    constructor(editor?: IEditor) {
+        super(editor);
+        this.henkanMode = new KakuteiMode(this, this.editor);
+    }
+
+    getHenkanMode(): AbstractHenkanMode {
+        return this.henkanMode;
+    }
 
     setHenkanMode(henkanMode: AbstractHenkanMode) {
         this.henkanMode = henkanMode;

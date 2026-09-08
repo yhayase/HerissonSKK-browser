@@ -158,13 +158,27 @@ export class FloatingHUD {
     this.ensureMount();
 
     this.badgeEl!.textContent = state.mode;
+    if (state.mode === '辞書登録' || state.mode === '再帰登録') {
+      this.badgeEl!.style.background = '#fab387';
+      this.badgeEl!.style.color = '#11111b';
+    } else if (state.mode === 'カナ') {
+      this.badgeEl!.style.background = '#a6e3a1';
+      this.badgeEl!.style.color = '#11111b';
+    } else if (state.mode === '全英') {
+      this.badgeEl!.style.background = '#f9e2af';
+      this.badgeEl!.style.color = '#11111b';
+    } else {
+      this.badgeEl!.style.background = '#89b4fa';
+      this.badgeEl!.style.color = '#11111b';
+    }
+
     this.preeditEl!.textContent = state.preedit || '';
     this.candidateEl!.textContent = state.candidate ? `▼${state.candidate}` : '';
     this.statusEl!.textContent = state.status || '';
 
     // Adjust position to stay inside viewport
-    const hudWidth = 180;
-    const hudHeight = 32;
+    const hudWidth = Math.max(180, this.container.offsetWidth || 180);
+    const hudHeight = Math.max(32, this.container.offsetHeight || 32);
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
 
@@ -193,5 +207,9 @@ export class FloatingHUD {
 
   public getState(): HUDState | null {
     return this.lastState;
+  }
+
+  public getShadowRoot(): ShadowRoot | null {
+    return this.shadow;
   }
 }

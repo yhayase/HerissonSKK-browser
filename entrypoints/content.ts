@@ -1,24 +1,58 @@
 import { BrowserEditorAdapter } from '@/src/adapter/BrowserEditorAdapter';
 import { HiraganaMode } from '@/src/core/skk/input-mode/HiraganaMode';
 import { AsciiMode } from '@/src/core/skk/input-mode/AsciiMode';
-import { SimpleMemoryJisyoProvider } from '@/src/core/skk/jisyo/SimpleMemoryJisyoProvider';
+import { RegistrationMode } from '@/src/core/skk/input-mode/henkan/RegistrationMode';
+import { CompositeJisyoProvider } from '@/src/core/skk/jisyo/CompositeJisyoProvider';
+import type { IJisyoStorage, IUserJisyoStorage } from '@/src/core/skk/jisyo/IJisyoStorage';
+import { RemoteJisyoStore } from '@/src/storage/jisyo/RemoteJisyoStore';
+import { RemoteUserStore } from '@/src/storage/user-jisyo/RemoteUserStore';
+import { RuntimeMessageSync } from '@/src/storage/sync/RuntimeMessageSync';
+import { isRuntimeAvailable, sendRuntimeMessage } from '@/src/storage/rpc/runtimeClient';
 import { FloatingHUD } from '@/src/hud/FloatingHUD';
+import { RegistrationModal } from '@/src/hud/RegistrationModal';
 import { isInputElement, isTextAreaElement } from '@/src/adapter/TextInserter';
+import { getDeepActiveElement, isTargetEditable } from '@/src/adapter/DOMUtils';
 
 export class SkkContentEngine {
   public adapter: BrowserEditorAdapter;
   public hud: FloatingHUD;
-  public jisyoProvider: SimpleMemoryJisyoProvider;
+  public jisyoProvider: CompositeJisyoProvider;
+  public systemStore: IJisyoStorage;
+  public userStore: IUserJisyoStorage;
+  public syncNotifier: RuntimeMessageSync;
+  public isInitializedPromise: Promise<void>;
 
   constructor() {
     this.hud = new FloatingHUD();
-    this.jisyoProvider = new SimpleMemoryJisyoProvider();
+    this.syncNotifier = new RuntimeMessageSync();
+    this.systemStore = new RemoteJisyoStore();
+    this.userStore = new RemoteUserStore({ senderId: this.syncNotifier.getSenderId() });
+
+    this.jisyoProvider = new CompositeJisyoProvider(
+      this.userStore,
+      [this.systemStore],
+      this.syncNotifier
+    );
+
     this.adapter = new BrowserEditorAdapter(
       this.hud,
       this.jisyoProvider
     );
-    this.adapter.setInputMode(AsciiMode.getInstance());
+    this.adapter.setInputMode(AsciiMode.getInstance(this.adapter));
     this.hud.hide();
+
+    this.isInitializedPromise = this.initDictionary();
+  }
+
+  public async initDictionary(): Promise<void> {
+    if (!isRuntimeAvailable()) {
+      return;
+    }
+    try {
+      await sendRuntimeMessage({ type: 'SKK_WAIT_READY' });
+    } catch (err) {
+      console.warn('[SKK] Background dictionary readiness ping error:', err);
+    }
   }
 
   public getMode(): string {
@@ -29,39 +63,21 @@ export class SkkContentEngine {
   }
 
   public isTargetEditable(el: Element | null): boolean {
-    if (!el) return false;
+    return isTargetEditable(el);
+  }
 
-    if (isInputElement(el)) {
-      if (el.readOnly || el.disabled) return false;
-      const nonTextTypes = [
-        'button',
-        'checkbox',
-        'color',
-        'file',
-        'hidden',
-        'image',
-        'radio',
-        'range',
-        'reset',
-        'submit',
-      ];
-      return !nonTextTypes.includes((el.type || 'text').toLowerCase());
-    }
+  private keyQueue: Promise<void> = Promise.resolve();
 
-    if (isTextAreaElement(el)) {
-      if (el.readOnly || el.disabled) return false;
-      return true;
-    }
-
-    if ((el as HTMLElement).isContentEditable) {
-      return true;
-    }
-
-    if (typeof el.closest === 'function' && el.closest('.monaco-editor')) {
-      return true;
-    }
-
-    return false;
+  public enqueueKeyAction(action: () => Promise<void>): Promise<void> {
+    this.keyQueue = this.keyQueue
+      .then(async () => {
+        await this.isInitializedPromise;
+        await action();
+      })
+      .catch((err) => {
+        console.error('[SKK] Key processing error:', err);
+      });
+    return this.keyQueue;
   }
 
   public updateHUD(target?: Element | null): void {
@@ -73,16 +89,33 @@ export class SkkContentEngine {
 
   public async handleKeyDown(e: KeyboardEvent): Promise<void> {
     try {
+      if (!e.isTrusted) {
+        return;
+      }
+
       if (e.isComposing || e.keyCode === 229) {
         return;
       }
 
-      const target = document.activeElement;
+      const activeModal = RegistrationModal.getActiveModal();
+      const isModalActive = activeModal?.isOpen() ?? false;
+
+      // Focus trap for modal: prevent tabbing away from the modal dialog
+      if (isModalActive && e.key === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      const target = getDeepActiveElement(document);
       if (!this.isTargetEditable(target)) {
         return;
       }
 
-      this.adapter.setTargetElement(target);
+      if (!isModalActive) {
+        this.adapter.setTargetElement(target);
+      }
 
       // 1. Intercept Ctrl+j to toggle between AsciiMode and HiraganaMode
       const isCtrlJ =
@@ -96,27 +129,35 @@ export class SkkContentEngine {
         e.stopPropagation();
         e.stopImmediatePropagation();
 
-        const mode = this.adapter.getCurrentInputMode();
-        const isComposing =
-          this.adapter.isInMidashigo() ||
-          !!this.adapter.getCurrentCandidate() ||
-          !!this.adapter.getRemainingRomaji();
-
-        if (mode instanceof AsciiMode) {
-          this.adapter.setInputMode(HiraganaMode.getInstance());
-        } else if (mode instanceof HiraganaMode) {
-          if (isComposing) {
-            await mode.ctrlJInput();
-          }
-          this.adapter.updateHUD();
-        } else {
-          if (isComposing) {
+        await this.enqueueKeyAction(async () => {
+          const mode = this.adapter.getCurrentInputMode();
+          if (mode instanceof RegistrationMode) {
             await mode.ctrlJInput();
             this.adapter.updateHUD();
-          } else {
-            this.adapter.setInputMode(HiraganaMode.getInstance());
+            return;
           }
-        }
+
+          const isComposing =
+            this.adapter.isInMidashigo() ||
+            !!this.adapter.getCurrentCandidate() ||
+            !!this.adapter.getRemainingRomaji();
+
+          if (mode instanceof AsciiMode) {
+            this.adapter.setInputMode(HiraganaMode.getInstance(this.adapter));
+          } else if (mode instanceof HiraganaMode) {
+            if (isComposing) {
+              await mode.ctrlJInput();
+            }
+            this.adapter.updateHUD();
+          } else {
+            if (isComposing) {
+              await mode.ctrlJInput();
+              this.adapter.updateHUD();
+            } else {
+              this.adapter.setInputMode(HiraganaMode.getInstance(this.adapter));
+            }
+          }
+        });
         return;
       }
 
@@ -140,8 +181,11 @@ export class SkkContentEngine {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        await mode.ctrlGInput();
-        this.adapter.updateHUD();
+        await this.enqueueKeyAction(async () => {
+          const currentMode = this.adapter.getCurrentInputMode();
+          await currentMode.ctrlGInput();
+          this.adapter.updateHUD();
+        });
         return;
       }
 
@@ -150,19 +194,49 @@ export class SkkContentEngine {
         return;
       }
 
+      // Allow native caret movement & navigation keys in modal when not composing
+      if (isModalActive && mode instanceof RegistrationMode) {
+        const mb = mode.getMiniBufferEditor();
+        const isComposingInModal =
+          mb.isInMidashigo() ||
+          !!mb.getCurrentCandidate() ||
+          !!mb.getRemainingRomaji();
+
+        if (!isComposingInModal) {
+          const navKeys = [
+            'ArrowLeft',
+            'ArrowRight',
+            'ArrowUp',
+            'ArrowDown',
+            'Home',
+            'End',
+            'PageUp',
+            'PageDown',
+            'Delete',
+          ];
+          if (navKeys.includes(e.key)) {
+            return;
+          }
+        }
+      }
+
       // Space
       if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        await mode.spaceInput();
-        this.adapter.updateHUD();
+        await this.enqueueKeyAction(async () => {
+          const currentMode = this.adapter.getCurrentInputMode();
+          await currentMode.spaceInput();
+          this.adapter.updateHUD();
+        });
         return;
       }
 
       // Enter
       if (e.key === 'Enter') {
         const isComposing =
+          mode instanceof RegistrationMode ||
           this.adapter.isInMidashigo() ||
           !!this.adapter.getCurrentCandidate() ||
           !!this.adapter.getRemainingRomaji();
@@ -171,8 +245,11 @@ export class SkkContentEngine {
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation();
-          await mode.enterInput();
-          this.adapter.updateHUD();
+          await this.enqueueKeyAction(async () => {
+            const currentMode = this.adapter.getCurrentInputMode();
+            await currentMode.enterInput();
+            this.adapter.updateHUD();
+          });
           return;
         }
         return;
@@ -183,8 +260,11 @@ export class SkkContentEngine {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        await mode.backspaceInput();
-        this.adapter.updateHUD();
+        await this.enqueueKeyAction(async () => {
+          const currentMode = this.adapter.getCurrentInputMode();
+          await currentMode.backspaceInput();
+          this.adapter.updateHUD();
+        });
         return;
       }
 
@@ -197,8 +277,11 @@ export class SkkContentEngine {
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation();
-          await mode.lowerAlphabetInput(char);
-          this.adapter.updateHUD();
+          await this.enqueueKeyAction(async () => {
+            const currentMode = this.adapter.getCurrentInputMode();
+            await currentMode.lowerAlphabetInput(char);
+            this.adapter.updateHUD();
+          });
           return;
         }
 
@@ -207,8 +290,11 @@ export class SkkContentEngine {
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation();
-          await mode.upperAlphabetInput(char);
-          this.adapter.updateHUD();
+          await this.enqueueKeyAction(async () => {
+            const currentMode = this.adapter.getCurrentInputMode();
+            await currentMode.upperAlphabetInput(char);
+            this.adapter.updateHUD();
+          });
           return;
         }
 
@@ -217,8 +303,11 @@ export class SkkContentEngine {
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation();
-          await mode.numberInput(char);
-          this.adapter.updateHUD();
+          await this.enqueueKeyAction(async () => {
+            const currentMode = this.adapter.getCurrentInputMode();
+            await currentMode.numberInput(char);
+            this.adapter.updateHUD();
+          });
           return;
         }
 
@@ -226,8 +315,11 @@ export class SkkContentEngine {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        await mode.symbolInput(char);
-        this.adapter.updateHUD();
+        await this.enqueueKeyAction(async () => {
+          const currentMode = this.adapter.getCurrentInputMode();
+          await currentMode.symbolInput(char);
+          this.adapter.updateHUD();
+        });
         return;
       }
     } catch (err) {
@@ -239,29 +331,50 @@ export class SkkContentEngine {
 export default defineContentScript({
   matches: ['<all_urls>', '*://localhost/*', '*://127.0.0.1/*'],
   runAt: 'document_start',
-  main() {
+  async main() {
     const engine = new SkkContentEngine();
 
     window.addEventListener(
       'keydown',
       (e) => {
+        if (!e.isTrusted) return;
         engine.handleKeyDown(e);
       },
       { capture: true }
     );
 
-    const updateActiveTarget = () => {
-      const target = document.activeElement;
+    const updateActiveTarget = (e?: Event) => {
+      if (e && !e.isTrusted) {
+        return;
+      }
+      if (RegistrationModal.getActiveModal()?.isOpen()) {
+        return;
+      }
+      const target = getDeepActiveElement(document);
       engine.adapter.setTargetElement(target);
       engine.adapter.updateHUD();
     };
 
     window.addEventListener('focusin', updateActiveTarget, { capture: true });
-    document.addEventListener('selectionchange', updateActiveTarget, { capture: true });
+    window.addEventListener('focusout', (e) => {
+      if (!e.isTrusted) return;
+      setTimeout(() => updateActiveTarget(), 0);
+    }, { capture: true });
+    document.addEventListener('selectionchange', (e) => {
+      if (e && !e.isTrusted) return;
+      updateActiveTarget();
+    }, { capture: true });
+    window.addEventListener('pointerdown', (e) => {
+      if (!e.isTrusted) return;
+      setTimeout(() => updateActiveTarget(), 0);
+    }, { capture: true });
 
     // Expose engine / adapter to window.__SKK_ENGINE__ for test inspection
     (window as any).__SKK_ENGINE__ = engine;
     (window as any).__SKK_POC_ENGINE__ = engine;
+
+    await engine.isInitializedPromise;
+    document.documentElement.setAttribute('data-skk-initialized', 'true');
 
     console.log('[SKK Extension] Content script loaded successfully.');
   },

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SimpleMemoryJisyoProvider } from "../../src/core/skk/jisyo/SimpleMemoryJisyoProvider";
 import { BrowserEditorAdapter } from "../../src/adapter/BrowserEditorAdapter";
 import { Candidate } from "../../src/core/skk/jisyo/candidate";
+import { Entry } from "../../src/core/skk/jisyo/entry";
 import { EditorFactory } from "../../src/core/skk/editor/EditorFactory";
 import { HiraganaMode } from "../../src/core/skk/input-mode/HiraganaMode";
 import { KatakanaMode } from "../../src/core/skk/input-mode/KatakanaMode";
@@ -11,6 +12,7 @@ import { DeleteLeftResult } from "../../src/core/skk/editor/IEditor";
 import { FloatingHUD } from "../../src/hud/FloatingHUD";
 import { getActiveCaretCoordinates } from "../../src/adapter/CaretPosition";
 import { insertText, isInputElement, isTextAreaElement, isSelectableInput } from "../../src/adapter/TextInserter";
+import { RegistrationMode } from "../../src/core/skk/input-mode/henkan/RegistrationMode";
 
 // --- Mock DOM Environment Setup for Unit Testing ---
 
@@ -1015,6 +1017,219 @@ describe("BrowserEditorAdapter", () => {
             expect(result.success).toBe(true);
             expect(result.method).toBe("fallback-value-replace");
             expect(numberInput.value).toBe("1009");
+        });
+    });
+
+    describe("Focus transition and status lifecycle", () => {
+        it("cancels composition in element A without inserting into DOM when switching focus to element B", async () => {
+            const inputA = new MockDOMElement();
+            const inputB = new MockDOMElement();
+            (document as any).activeElement = inputA;
+
+            adapter.setTargetElement(inputA as unknown as Element);
+            adapter.setInputMode(HiraganaMode.getInstance());
+
+            // Type 'k', 'a', 'w', 'a' -> midashigo ▽かわ
+            await adapter.getCurrentInputMode().upperAlphabetInput("K");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("a");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("w");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("a");
+            expect(adapter.isInMidashigo()).toBe(true);
+            expect(adapter.getMidashigo()).toBe("かわ");
+
+            // Focus moves to inputB
+            (document as any).activeElement = inputB;
+            adapter.setTargetElement(inputB as unknown as Element);
+
+            // Composition should be cancelled, NOT committed to inputA
+            expect(inputA.value).toBe("");
+            // Adapter should no longer be in midashigo
+            expect(adapter.isInMidashigo()).toBe(false);
+            expect(adapter.getMidashigo()).toBe("");
+            // inputB should be untouched
+            expect(inputB.value).toBe("");
+        });
+
+        it("cancels active candidate in element A without inserting into DOM when switching focus to element B", async () => {
+            const inputA = new MockDOMElement();
+            const inputB = new MockDOMElement();
+            (document as any).activeElement = inputA;
+
+            adapter.setTargetElement(inputA as unknown as Element);
+            adapter.setInputMode(HiraganaMode.getInstance());
+
+            // Type 'k', 'a', 'n', 'j', 'i' -> Space (candidate "漢字")
+            await adapter.getCurrentInputMode().upperAlphabetInput("K");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("a");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("n");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("j");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("i");
+            await adapter.getCurrentInputMode().spaceInput();
+
+            expect(adapter.getCurrentCandidate()?.word).toBe("漢字");
+
+            // Focus switches to inputB
+            (document as any).activeElement = inputB;
+            adapter.setTargetElement(inputB as unknown as Element);
+
+            // Candidate cancelled, NOT committed into inputA
+            expect(inputA.value).toBe("");
+            expect(adapter.getCurrentCandidate()).toBeUndefined();
+            expect(adapter.isInMidashigo()).toBe(false);
+            expect(inputB.value).toBe("");
+        });
+
+        it("cancels pending romaji without inserting into DOM when switching focus to element B", async () => {
+            const inputA = new MockDOMElement();
+            const inputB = new MockDOMElement();
+            (document as any).activeElement = inputA;
+
+            adapter.setTargetElement(inputA as unknown as Element);
+            adapter.setInputMode(HiraganaMode.getInstance());
+
+            // Type 'n' -> pending romaji 'n'
+            await adapter.getCurrentInputMode().lowerAlphabetInput("n");
+            expect(adapter.getRemainingRomaji()).toBe("n");
+            expect(inputA.value).toBe("");
+
+            // Focus switches to inputB
+            (document as any).activeElement = inputB;
+            adapter.setTargetElement(inputB as unknown as Element);
+
+            // Romaji should be cancelled without being converted to 'ん' or committed
+            expect(inputA.value).toBe("");
+            expect(adapter.getRemainingRomaji()).toBe("");
+            expect(inputB.value).toBe("");
+        });
+
+        it("cancels composition in element A and hides HUD when focus switches to uneditable element (e.g. document body)", async () => {
+            const inputA = new MockDOMElement();
+            const bodyEl = { tagName: "BODY", isContentEditable: false, closest: () => null };
+            (document as any).activeElement = inputA;
+
+            adapter.setTargetElement(inputA as unknown as Element);
+            adapter.setInputMode(HiraganaMode.getInstance());
+            adapter.updateHUD();
+            expect(hud.getVisible()).toBe(true);
+
+            // Start midashigo
+            await adapter.getCurrentInputMode().upperAlphabetInput("K");
+            await adapter.getCurrentInputMode().lowerAlphabetInput("a");
+
+            // Focus switches to body
+            (document as any).activeElement = bodyEl;
+            adapter.setTargetElement(bodyEl as any);
+            adapter.updateHUD();
+
+            // InputA is clean (uncommitted composition cancelled)
+            expect(inputA.value).toBe("");
+            // HUD is hidden
+            expect(hud.getVisible()).toBe(false);
+        });
+
+        it("clears [辞書登録: ...] status when exiting registration mode via confirm or cancel", async () => {
+            const inputA = new MockDOMElement();
+            (document as any).activeElement = inputA;
+            adapter.setTargetElement(inputA as unknown as Element);
+            adapter.setInputMode(HiraganaMode.getInstance());
+
+            // Open registration editor for midashigo 'てすと'
+            await adapter.openRegistrationEditor("てすと", "");
+
+            expect((adapter as any).lastStatus).toContain("[辞書登録: てすと]");
+            expect(adapter.getCurrentInputMode()).toBeInstanceOf(RegistrationMode);
+
+            // Cancel registration (C-g / abort)
+            const regMode = adapter.getCurrentInputMode() as RegistrationMode;
+            await regMode.cancelRegistration();
+
+            // Status should be cleared
+            expect((adapter as any).lastStatus).toBe("");
+            expect(hud.getState()?.status).toBeFalsy();
+        });
+    });
+
+    describe("Async Lookup Generation Tracking & Stale Lookup Discarding", () => {
+        it("advances session counter on cancelComposition, setTargetElement, and clearMidashigo", async () => {
+            const initialSession = adapter.getCurrentCompositionSession();
+
+            await adapter.cancelComposition();
+            expect(adapter.getCurrentCompositionSession()).toBe(initialSession + 1);
+
+            const input1 = new MockDOMElement();
+            adapter.setTargetElement(input1 as unknown as Element);
+            expect(adapter.getCurrentCompositionSession()).toBe(initialSession + 2);
+
+            await adapter.clearMidashigo();
+            expect(adapter.getCurrentCompositionSession()).toBe(initialSession + 3);
+        });
+
+        it("discards stale async lookup results when cancelComposition is called while lookup is in-flight", async () => {
+            let resolveLookup!: (entry: any) => void;
+            const delayedPromise = new Promise<any>((resolve) => {
+                resolveLookup = resolve;
+            });
+
+            const slowProvider = {
+                lookupCandidates: vi.fn().mockImplementation(() => delayedPromise),
+                registerCandidate: vi.fn(),
+                deleteCandidate: vi.fn(),
+                save: vi.fn(),
+            };
+            adapter.setJisyoProvider(slowProvider as any);
+
+            // Start an async lookup
+            const lookupPromise = adapter.requestCandidates("とうきょう");
+
+            // User cancels composition or changes focus while lookup is pending
+            await adapter.cancelComposition();
+
+            // The slow dictionary lookup finally resolves
+            resolveLookup(new Entry("とうきょう", [new Candidate("東京")], ""));
+
+            const result = await lookupPromise;
+            // The stale result must be discarded (returns undefined)
+            expect(result).toBeUndefined();
+        });
+
+        it("discards stale async lookup results when target element changes while lookup is in-flight", async () => {
+            let resolveLookup!: (entry: any) => void;
+            const delayedPromise = new Promise<any>((resolve) => {
+                resolveLookup = resolve;
+            });
+
+            const slowProvider = {
+                lookupCandidates: vi.fn().mockImplementation(() => delayedPromise),
+                registerCandidate: vi.fn(),
+                deleteCandidate: vi.fn(),
+                save: vi.fn(),
+            };
+            adapter.setJisyoProvider(slowProvider as any);
+
+            const inputA = new MockDOMElement();
+            adapter.setTargetElement(inputA as unknown as Element);
+
+            const lookupPromise = adapter.requestCandidates("かんじ");
+
+            // Focus changes to inputB
+            const inputB = new MockDOMElement();
+            adapter.setTargetElement(inputB as unknown as Element);
+
+            // Stale lookup resolves
+            resolveLookup(new Entry("かんじ", [new Candidate("漢字")], ""));
+
+            const result = await lookupPromise;
+            expect(result).toBeUndefined();
+        });
+
+        it("preserves lookup results when session remains unchanged", async () => {
+            const provider = new SimpleMemoryJisyoProvider();
+            await provider.registerCandidate("テスト", new Candidate("試験"));
+            adapter.setJisyoProvider(provider);
+
+            const result = await adapter.requestCandidates("テスト");
+            expect(result).toBeDefined();
+            expect(result?.getCandidateList()[0]?.word).toBe("試験");
         });
     });
 });

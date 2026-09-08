@@ -34,7 +34,9 @@ export class Entry {
         }
 
         // Register reordered candidate list to the jisyo.
-        jisyoProvider.reorderCandidate(this.midashigo, index).catch((err) => {
+        // Pass the actual candidate object if available to ensure stable candidate promotion.
+        const candidate = this.rawCandidateList[index];
+        jisyoProvider.reorderCandidate(this.midashigo, candidate ?? index).catch((err) => {
             console.error(`Failed to reorder candidate for "${this.midashigo}":`, err);
         });
     }

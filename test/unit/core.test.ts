@@ -111,9 +111,9 @@ describe('Candidate & Entry', () => {
         entry.onCandidateSelected(mockProvider, 0);
         expect(mockProvider.reorderCandidate).not.toHaveBeenCalled();
 
-        // Index 1: calls reorderCandidate
+        // Index 1: calls reorderCandidate with Candidate object
         entry.onCandidateSelected(mockProvider, 1);
-        expect(mockProvider.reorderCandidate).toHaveBeenCalledWith('とうきょう', 1);
+        expect(mockProvider.reorderCandidate).toHaveBeenCalledWith('とうきょう', candidates[1]);
     });
 
     it('handles reorderCandidate rejection gracefully without unhandled promise rejection', async () => {
