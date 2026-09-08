@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SimpleMemoryJisyoProvider } from "../../src/core/skk/jisyo/SimpleMemoryJisyoProvider";
 import { BrowserEditorAdapter } from "../../src/adapter/BrowserEditorAdapter";
 import { Candidate } from "../../src/core/skk/jisyo/candidate";
+import { Entry } from "../../src/core/skk/jisyo/entry";
 import { EditorFactory } from "../../src/core/skk/editor/EditorFactory";
 import { HiraganaMode } from "../../src/core/skk/input-mode/HiraganaMode";
 import { KatakanaMode } from "../../src/core/skk/input-mode/KatakanaMode";
@@ -1145,6 +1146,90 @@ describe("BrowserEditorAdapter", () => {
             // Status should be cleared
             expect((adapter as any).lastStatus).toBe("");
             expect(hud.getState()?.status).toBeFalsy();
+        });
+    });
+
+    describe("Async Lookup Generation Tracking & Stale Lookup Discarding", () => {
+        it("advances session counter on cancelComposition, setTargetElement, and clearMidashigo", async () => {
+            const initialSession = adapter.getCurrentCompositionSession();
+
+            await adapter.cancelComposition();
+            expect(adapter.getCurrentCompositionSession()).toBe(initialSession + 1);
+
+            const input1 = new MockDOMElement();
+            adapter.setTargetElement(input1 as unknown as Element);
+            expect(adapter.getCurrentCompositionSession()).toBe(initialSession + 2);
+
+            await adapter.clearMidashigo();
+            expect(adapter.getCurrentCompositionSession()).toBe(initialSession + 3);
+        });
+
+        it("discards stale async lookup results when cancelComposition is called while lookup is in-flight", async () => {
+            let resolveLookup!: (entry: any) => void;
+            const delayedPromise = new Promise<any>((resolve) => {
+                resolveLookup = resolve;
+            });
+
+            const slowProvider = {
+                lookupCandidates: vi.fn().mockImplementation(() => delayedPromise),
+                registerCandidate: vi.fn(),
+                deleteCandidate: vi.fn(),
+                save: vi.fn(),
+            };
+            adapter.setJisyoProvider(slowProvider as any);
+
+            // Start an async lookup
+            const lookupPromise = adapter.requestCandidates("とうきょう");
+
+            // User cancels composition or changes focus while lookup is pending
+            await adapter.cancelComposition();
+
+            // The slow dictionary lookup finally resolves
+            resolveLookup(new Entry("とうきょう", [new Candidate("東京")], ""));
+
+            const result = await lookupPromise;
+            // The stale result must be discarded (returns undefined)
+            expect(result).toBeUndefined();
+        });
+
+        it("discards stale async lookup results when target element changes while lookup is in-flight", async () => {
+            let resolveLookup!: (entry: any) => void;
+            const delayedPromise = new Promise<any>((resolve) => {
+                resolveLookup = resolve;
+            });
+
+            const slowProvider = {
+                lookupCandidates: vi.fn().mockImplementation(() => delayedPromise),
+                registerCandidate: vi.fn(),
+                deleteCandidate: vi.fn(),
+                save: vi.fn(),
+            };
+            adapter.setJisyoProvider(slowProvider as any);
+
+            const inputA = new MockDOMElement();
+            adapter.setTargetElement(inputA as unknown as Element);
+
+            const lookupPromise = adapter.requestCandidates("かんじ");
+
+            // Focus changes to inputB
+            const inputB = new MockDOMElement();
+            adapter.setTargetElement(inputB as unknown as Element);
+
+            // Stale lookup resolves
+            resolveLookup(new Entry("かんじ", [new Candidate("漢字")], ""));
+
+            const result = await lookupPromise;
+            expect(result).toBeUndefined();
+        });
+
+        it("preserves lookup results when session remains unchanged", async () => {
+            const provider = new SimpleMemoryJisyoProvider();
+            await provider.registerCandidate("テスト", new Candidate("試験"));
+            adapter.setJisyoProvider(provider);
+
+            const result = await adapter.requestCandidates("テスト");
+            expect(result).toBeDefined();
+            expect(result?.getCandidateList()[0]?.word).toBe("試験");
         });
     });
 });

@@ -160,6 +160,32 @@ describe("RemoteUserStore", () => {
         const afterDelete = await store.loadUserEntries();
         expect(afterDelete.has("とうきょう")).toBe(false);
     });
+
+    it("returns false on RPC failure instead of silently falling back to in-memory store", async () => {
+        const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+        const failingClient: IRuntimeClient = {
+            sendMessage: vi.fn().mockRejectedValue(new Error("Extension context invalidated")),
+        };
+
+        const store = new RemoteUserStore({ client: failingClient, senderId: "tab_err" });
+
+        const saveResult = await store.saveCandidate("とうきょう", new Candidate("東京"));
+        expect(saveResult).toBe(false);
+
+        const reorderResult = await store.reorderCandidate("とうきょう", 0);
+        expect(reorderResult).toBe(false);
+
+        const deleteResult = await store.deleteCandidate("とうきょう", new Candidate("東京"));
+        expect(deleteResult).toBe(false);
+
+        const saveEntriesResult = await store.saveUserEntries(new Map([["test", [new Candidate("試験")]]]));
+        expect(saveEntriesResult).toBe(false);
+
+        const clearResult = await store.clear();
+        expect(clearResult).toBe(false);
+
+        consoleErrorSpy.mockRestore();
+    });
 });
 
 describe("RuntimeMessageSync", () => {

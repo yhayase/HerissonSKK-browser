@@ -89,6 +89,10 @@ export class SkkContentEngine {
 
   public async handleKeyDown(e: KeyboardEvent): Promise<void> {
     try {
+      if (!e.isTrusted) {
+        return;
+      }
+
       if (e.isComposing || e.keyCode === 229) {
         return;
       }
@@ -333,12 +337,16 @@ export default defineContentScript({
     window.addEventListener(
       'keydown',
       (e) => {
+        if (!e.isTrusted) return;
         engine.handleKeyDown(e);
       },
       { capture: true }
     );
 
-    const updateActiveTarget = () => {
+    const updateActiveTarget = (e?: Event) => {
+      if (e && !e.isTrusted) {
+        return;
+      }
       if (RegistrationModal.getActiveModal()?.isOpen()) {
         return;
       }
@@ -348,12 +356,17 @@ export default defineContentScript({
     };
 
     window.addEventListener('focusin', updateActiveTarget, { capture: true });
-    window.addEventListener('focusout', () => {
-      setTimeout(updateActiveTarget, 0);
+    window.addEventListener('focusout', (e) => {
+      if (!e.isTrusted) return;
+      setTimeout(() => updateActiveTarget(), 0);
     }, { capture: true });
-    document.addEventListener('selectionchange', updateActiveTarget, { capture: true });
-    window.addEventListener('pointerdown', () => {
-      setTimeout(updateActiveTarget, 0);
+    document.addEventListener('selectionchange', (e) => {
+      if (e && !e.isTrusted) return;
+      updateActiveTarget();
+    }, { capture: true });
+    window.addEventListener('pointerdown', (e) => {
+      if (!e.isTrusted) return;
+      setTimeout(() => updateActiveTarget(), 0);
     }, { capture: true });
 
     // Expose engine / adapter to window.__SKK_ENGINE__ for test inspection

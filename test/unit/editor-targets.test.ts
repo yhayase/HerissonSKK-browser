@@ -52,6 +52,23 @@ class MockDOMRange {
         this.endOffset = endOffset;
     }
 
+    public collapsed: boolean = false;
+    public setStartAfterCalledWith: any = null;
+    public collapseCalledWith: boolean | null = null;
+
+    public setStartAfter(node: any): void {
+        this.setStartAfterCalledWith = node;
+    }
+
+    public collapse(toStart?: boolean): void {
+        this.collapseCalledWith = toStart ?? false;
+        this.collapsed = true;
+    }
+
+    public get commonAncestorContainer(): any {
+        return this.startContainer;
+    }
+
     public cloneRange(): MockDOMRange {
         return new MockDOMRange(
             this.startContainer,
@@ -116,6 +133,15 @@ class MockContentEditableElement {
     public isConnected: boolean = true;
     public isFocused: boolean = false;
     public events: Event[] = [];
+
+    public contains(other: any): boolean {
+        let curr = other;
+        while (curr) {
+            if (curr === this) return true;
+            curr = curr.parentElement ?? curr.parentNode;
+        }
+        return false;
+    }
 
     public focus(): void {
         this.isFocused = true;
@@ -314,6 +340,80 @@ describe("Editor Targets Specification (TC-TARGET-01, TC-TARGET-02)", () => {
                 el.textContent = "サンプル文章";
                 const target: IEditorTarget = new ContentEditableTarget(el as unknown as HTMLElement);
                 expect(target.getText()).toBe("サンプル文章");
+            });
+
+            it("TC-TARGET-01j: insertText positions caret after inserted node and dispatches input event", () => {
+                const el = new MockContentEditableElement();
+                el.textContent = "初期テキスト";
+                const textNode = { textContent: el.textContent, isConnected: true, parentElement: el };
+                const range = new MockDOMRange(textNode, 2, textNode, 2);
+                mockSelection.addRange(range);
+
+                const target: IEditorTarget = new ContentEditableTarget(el as unknown as HTMLElement);
+                const result = target.insertText("挿入");
+
+                expect(result.success).toBe(true);
+                // Verify range was moved after the inserted node and collapsed
+                expect(range.setStartAfterCalledWith).toBeDefined();
+                expect(range.collapseCalledWith).toBe(true);
+                expect(mockSelection.rangeCount).toBe(1);
+                // Verify input event was dispatched on the element with inputType insertText
+                const inputEvents = el.events.filter((e) => e.type === "input");
+                expect(inputEvents.length).toBeGreaterThan(0);
+                expect(inputEvents[0]?.bubbles).toBe(true);
+                expect((inputEvents[0] as any).inputType).toBe("insertText");
+                expect((inputEvents[0] as any).data).toBe("挿入");
+            });
+
+            it("TC-TARGET-01k: deleteLeft dispatches input event with inputType deleteContentBackward", () => {
+                const el = new MockContentEditableElement();
+                el.textContent = "テスト文章";
+                const textNode = { textContent: el.textContent, isConnected: true, parentElement: el };
+                const range = new MockDOMRange(textNode, 3, textNode, 3);
+                mockSelection.addRange(range);
+
+                const target: IEditorTarget = new ContentEditableTarget(el as unknown as HTMLElement);
+                const result = target.deleteLeft();
+
+                expect(result).toBe(true);
+                const inputEvents = el.events.filter((e) => e.type === "input");
+                expect(inputEvents.length).toBeGreaterThan(0);
+                expect(inputEvents[0]?.bubbles).toBe(true);
+                expect((inputEvents[0] as any).inputType).toBe("deleteContentBackward");
+            });
+
+            it("TC-TARGET-01l: does not mutate or operate on selection outside this.element", () => {
+                const outsideEl = new MockContentEditableElement();
+                outsideEl.textContent = "外部要素のテキスト";
+                const outsideTextNode = { textContent: outsideEl.textContent, isConnected: true, parentElement: outsideEl };
+                const outsideRange = new MockDOMRange(outsideTextNode, 2, outsideTextNode, 5);
+                mockSelection.addRange(outsideRange);
+
+                const myEl = new MockContentEditableElement();
+                myEl.textContent = "自要素";
+                const target: IEditorTarget = new ContentEditableTarget(myEl as unknown as HTMLElement);
+
+                // 1. insertText should not touch outsideRange
+                const insertRes = target.insertText("追加");
+                expect(insertRes.success).toBe(true);
+                expect(insertRes.method).toBe("text-content-append");
+                // Outside element text unchanged
+                expect(outsideEl.textContent).toBe("外部要素のテキスト");
+                // Inside element text updated safely
+                expect(myEl.textContent).toBe("自要素追加");
+
+                // 2. deleteLeft should not delete from outsideRange
+                const deleteRes = target.deleteLeft();
+                expect(deleteRes).toBe(true);
+                expect(outsideEl.textContent).toBe("外部要素のテキスト");
+                expect(myEl.textContent).toBe("自要素追");
+
+                // 3. saveSelection should not capture outsideRange
+                const snapshot = target.saveSelection();
+                mockSelection.removeAllRanges();
+                snapshot.restore();
+                // Should not restore outsideRange into my target
+                expect(mockSelection.rangeCount).toBe(0);
             });
         });
     });

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SimpleMemoryJisyoProvider } from "../../src/core/skk/jisyo/SimpleMemoryJisyoProvider";
 import { BrowserEditorAdapter } from "../../src/adapter/BrowserEditorAdapter";
 import { RegistrationMode } from "../../src/core/skk/input-mode/henkan/RegistrationMode";
@@ -145,6 +145,31 @@ describe("RegistrationMode (Inline & Recursive Registration)", () => {
             // Restored to HiraganaMode in KakuteiMode
             expect(adapter.getCurrentInputMode()).toBeInstanceOf(HiraganaMode);
             expect(adapter.getModeBadgeText()).toBe("かな");
+        });
+
+        it("handles registerCandidate failure gracefully without exiting registration mode", async () => {
+            await adapter.openRegistrationEditor("とうろく", "");
+            const regMode = adapter.getCurrentInputMode() as RegistrationMode;
+
+            // Type "とう" into buffer
+            await regMode.lowerAlphabetInput("t");
+            await regMode.lowerAlphabetInput("o");
+            await regMode.lowerAlphabetInput("u");
+
+            // Mock registerCandidate to return false (e.g. storage/RPC failure)
+            vi.spyOn(jisyoProvider, "registerCandidate").mockResolvedValue(false);
+            const errorSpy = vi.spyOn(adapter, "showErrorMessage");
+
+            await regMode.enterInput();
+
+            // Should show error message
+            expect(errorSpy).toHaveBeenCalledWith("辞書登録に失敗しました");
+            // Should stay in RegistrationMode
+            expect(adapter.getCurrentInputMode()).toBe(regMode);
+            // Should NOT have committed text to the main document
+            expect(mockElement.value).toBe("");
+            // Text in buffer should be preserved
+            expect(regMode.getMiniBufferEditor().getCommittedText()).toBe("とう");
         });
 
         it("pressing Ctrl+J on committed text is a no-op and stays in RegistrationMode", async () => {
