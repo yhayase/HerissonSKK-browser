@@ -366,4 +366,87 @@ describe("IndexedDbJisyoStore", () => {
             }
         });
     });
+
+    describe("Import Status Metadata", () => {
+        it("saves and retrieves import status record", async () => {
+            const status = {
+                dictId: "SKK-JISYO.S",
+                version: "1.0.0",
+                completed: true,
+                entryCount: 3000,
+                timestamp: Date.now(),
+            };
+
+            await store.setImportStatus(status);
+            const retrieved = await store.getImportStatus("SKK-JISYO.S");
+
+            expect(retrieved).toEqual(status);
+        });
+
+        it("returns undefined for non-existent dictId", async () => {
+            const retrieved = await store.getImportStatus("unknown_dict");
+            expect(retrieved).toBeUndefined();
+        });
+
+        it("isImportCompleted returns true only when status completed is true, version matches, and store is not empty", async () => {
+            const dictId = "test_dict";
+            expect(await store.isImportCompleted(dictId, "1.0.0")).toBe(false);
+
+            // Incomplete status
+            await store.setImportStatus({
+                dictId,
+                version: "1.0.0",
+                completed: false,
+                entryCount: 0,
+                timestamp: Date.now(),
+            });
+            expect(await store.isImportCompleted(dictId, "1.0.0")).toBe(false);
+
+            // Completed status but empty store
+            await store.setImportStatus({
+                dictId,
+                version: "1.0.0",
+                completed: true,
+                entryCount: 10,
+                timestamp: Date.now(),
+            });
+            expect(await store.isImportCompleted(dictId, "1.0.0")).toBe(false);
+
+            // Populated store with matching completed status
+            await store.importEntries([{ key: "t1", candidates: [new Candidate("テスト")] }]);
+            expect(await store.isImportCompleted(dictId, "1.0.0")).toBe(true);
+
+            // Version mismatch returns false
+            expect(await store.isImportCompleted(dictId, "2.0.0")).toBe(false);
+        });
+
+        it("deletes import status via deleteImportStatus", async () => {
+            await store.setImportStatus({
+                dictId: "to_delete",
+                version: "1.0.0",
+                completed: true,
+                entryCount: 50,
+                timestamp: Date.now(),
+            });
+
+            expect(await store.getImportStatus("to_delete")).toBeDefined();
+            await store.deleteImportStatus("to_delete");
+            expect(await store.getImportStatus("to_delete")).toBeUndefined();
+        });
+
+        it("clears metadata when clear(dictId) is called", async () => {
+            await store.importEntries([{ key: "k", candidates: [new Candidate("v")] }]);
+            await store.setImportStatus({
+                dictId: "dict1",
+                version: "1.0.0",
+                completed: true,
+                entryCount: 1,
+                timestamp: Date.now(),
+            });
+
+            await store.clear("dict1");
+            expect(await store.getImportStatus("dict1")).toBeUndefined();
+            expect(await store.count()).toBe(0);
+        });
+    });
 });

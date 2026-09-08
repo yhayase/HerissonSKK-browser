@@ -20,6 +20,17 @@ export interface StoredJisyoRecord {
 }
 
 /**
+ * Metadata record representing dictionary import completion state.
+ */
+export interface DictionaryImportStatus {
+    dictId: string;
+    version: string;
+    completed: boolean;
+    entryCount: number;
+    timestamp: number;
+}
+
+/**
  * Configuration options for IndexedDbJisyoStore.
  */
 export interface IndexedDbJisyoStoreOptions {
@@ -34,7 +45,7 @@ export interface IndexedDbJisyoStoreOptions {
     storeName?: string;
 
     /**
-     * Database schema version. Defaults to 2.
+     * Database schema version. Defaults to 3.
      */
     version?: number;
 
@@ -106,7 +117,7 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
     constructor(options?: IndexedDbJisyoStoreOptions) {
         this.dbName = options?.dbName ?? "skk_dictionary";
         this.storeName = options?.storeName ?? "system_jisyo";
-        this.version = options?.version ?? 2;
+        this.version = options?.version ?? 3;
         this.idbFactory = options?.indexedDB;
     }
 
@@ -154,6 +165,9 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
                     }
                     if (!db.objectStoreNames.contains("user_jisyo")) {
                         db.createObjectStore("user_jisyo", { keyPath: "key" });
+                    }
+                    if (!db.objectStoreNames.contains("system_metadata")) {
+                        db.createObjectStore("system_metadata", { keyPath: "dictId" });
                     }
                     if (!db.objectStoreNames.contains(this.storeName)) {
                         db.createObjectStore(this.storeName, { keyPath: "key" });
@@ -318,15 +332,124 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
     }
 
     /**
-     * Clears all records from the dictionary object store.
+     * Records or updates the import status for a dictionary.
+     *
+     * @param status Dictionary import status metadata
      */
-    public async clear(): Promise<void> {
+    public async setImportStatus(status: DictionaryImportStatus): Promise<void> {
+        if (this.isClosed) {
+            throw new Error("IndexedDbJisyoStore is closed");
+        }
         const db = await this.ensureInitialized();
 
         return new Promise<void>((resolve, reject) => {
-            const tx = db.transaction(this.storeName, "readwrite");
+            const tx = db.transaction("system_metadata", "readwrite");
+            const store = tx.objectStore("system_metadata");
+            const req = store.put(status);
+
+            req.onerror = () => {
+                reject(req.error ?? new Error(`Failed to set import status for "${status.dictId}"`));
+            };
+
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error ?? new Error("Transaction error setting import status"));
+            tx.onabort = () => reject(tx.error ?? new Error("Transaction aborted setting import status"));
+        });
+    }
+
+    /**
+     * Retrieves the import status record for a given dictionary identifier.
+     *
+     * @param dictId The dictionary identifier (e.g. "dict/SKK-JISYO.S")
+     * @returns DictionaryImportStatus if found, or undefined
+     */
+    public async getImportStatus(dictId: string): Promise<DictionaryImportStatus | undefined> {
+        if (this.isClosed) {
+            throw new Error("IndexedDbJisyoStore is closed");
+        }
+        const db = await this.ensureInitialized();
+
+        return new Promise<DictionaryImportStatus | undefined>((resolve, reject) => {
+            const tx = db.transaction("system_metadata", "readonly");
+            const store = tx.objectStore("system_metadata");
+            const req = store.get(dictId);
+
+            req.onsuccess = () => {
+                resolve(req.result as DictionaryImportStatus | undefined);
+            };
+
+            req.onerror = () => {
+                reject(req.error ?? new Error(`Failed to get import status for "${dictId}"`));
+            };
+        });
+    }
+
+    /**
+     * Deletes the import status record for a given dictionary identifier.
+     *
+     * @param dictId The dictionary identifier
+     */
+    public async deleteImportStatus(dictId: string): Promise<void> {
+        if (this.isClosed) {
+            throw new Error("IndexedDbJisyoStore is closed");
+        }
+        const db = await this.ensureInitialized();
+
+        return new Promise<void>((resolve, reject) => {
+            const tx = db.transaction("system_metadata", "readwrite");
+            const store = tx.objectStore("system_metadata");
+            store.delete(dictId);
+
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error ?? new Error(`Failed to delete import status for "${dictId}"`));
+            tx.onabort = () => reject(tx.error ?? new Error("Transaction aborted deleting import status"));
+        });
+    }
+
+    /**
+     * Checks if the dictionary import was completed for the specified dictId and version.
+     * Also verifies that the store contains records.
+     *
+     * @param dictId Dictionary identifier
+     * @param version Optional version string to match
+     * @returns True if import is completed and valid
+     */
+    public async isImportCompleted(dictId: string, version?: string): Promise<boolean> {
+        const status = await this.getImportStatus(dictId);
+        if (!status || !status.completed) {
+            return false;
+        }
+        if (version !== undefined && status.version !== version) {
+            return false;
+        }
+        const count = await this.count();
+        if (count === 0) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Clears all records from the dictionary object store.
+     * Optionally also clears the import status for the specified dictId.
+     */
+    public async clear(dictId?: string): Promise<void> {
+        if (this.isClosed) {
+            throw new Error("IndexedDbJisyoStore is closed");
+        }
+        const db = await this.ensureInitialized();
+
+        return new Promise<void>((resolve, reject) => {
+            const hasMeta = db.objectStoreNames.contains("system_metadata");
+            const storeNames = hasMeta ? [this.storeName, "system_metadata"] : [this.storeName];
+            const tx = db.transaction(storeNames, "readwrite");
             const store = tx.objectStore(this.storeName);
             store.clear();
+
+            if (hasMeta && dictId) {
+                const metaStore = tx.objectStore("system_metadata");
+                metaStore.delete(dictId);
+            }
 
             tx.oncomplete = () => resolve();
             tx.onerror = () => reject(tx.error ?? new Error("Failed to clear IndexedDB store"));

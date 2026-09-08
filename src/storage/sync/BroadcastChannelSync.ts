@@ -41,11 +41,13 @@ export interface BroadcastChannelSyncOptions {
 
 /**
  * Multi-tab synchronization utility using standard BroadcastChannel.
- * Safely ignores self-broadcast messages and falls back gracefully when BroadcastChannel is unavailable.
+ * Safely ignores self-broadcast messages and duplicate mutations, and falls back gracefully when BroadcastChannel is unavailable.
  */
 export class BroadcastChannelSync implements IUserJisyoSyncNotifier {
     private readonly senderId: string;
     private readonly channelName: string;
+    private readonly processedMutationIds: Set<string> = new Set();
+    private readonly maxProcessedMutations = 100;
     private channel: BroadcastChannel | null = null;
     private handlers: Set<(event: IUserJisyoSyncEvent) => void> = new Set();
     private isClosed = false;
@@ -68,6 +70,9 @@ export class BroadcastChannelSync implements IUserJisyoSyncNotifier {
                     if (!data || data.senderId === this.senderId) {
                         return; // Ignore self messages
                     }
+                    if (data.mutationId && this.markMutationProcessed(data.mutationId)) {
+                        return; // Ignore duplicate messages
+                    }
                     for (const handler of this.handlers) {
                         try {
                             handler(data);
@@ -88,6 +93,33 @@ export class BroadcastChannelSync implements IUserJisyoSyncNotifier {
             "_" +
             Date.now().toString(36)
         );
+    }
+
+    private generateMutationId(): string {
+        return (
+            this.senderId +
+            "_" +
+            Date.now().toString(36) +
+            "_" +
+            Math.random().toString(36).substring(2, 8)
+        );
+    }
+
+    private markMutationProcessed(mutationId?: string): boolean {
+        if (!mutationId) {
+            return false;
+        }
+        if (this.processedMutationIds.has(mutationId)) {
+            return true;
+        }
+        this.processedMutationIds.add(mutationId);
+        if (this.processedMutationIds.size > this.maxProcessedMutations) {
+            const first = this.processedMutationIds.values().next().value;
+            if (first !== undefined) {
+                this.processedMutationIds.delete(first);
+            }
+        }
+        return false;
     }
 
     /**
@@ -112,9 +144,14 @@ export class BroadcastChannelSync implements IUserJisyoSyncNotifier {
             return;
         }
 
+        const mutationId = event?.mutationId ?? this.generateMutationId();
+        this.markMutationProcessed(mutationId);
+
         const msg: UserJisyoSyncMessage = {
             type: event?.type ?? "MUTATED",
-            senderId: this.senderId,
+            senderId: event?.senderId ?? this.senderId,
+            mutationId,
+            timestamp: event?.timestamp ?? Date.now(),
             ...(event?.key ? { key: event.key } : {}),
             ...(event?.candidate ? { candidate: event.candidate } : {}),
             ...(event?.selectedIndex !== undefined ? { selectedIndex: event.selectedIndex } : {}),

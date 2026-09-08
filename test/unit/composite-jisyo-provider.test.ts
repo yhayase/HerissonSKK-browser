@@ -299,5 +299,62 @@ describe("CompositeJisyoProvider", () => {
             // Handler on syncA should NOT have been called for its own broadcast
             expect(spyB).not.toHaveBeenCalled();
         });
+
+        it("eliminates duplicate sync broadcasts with identical mutationId", async () => {
+            const spyHandler = vi.fn();
+            syncB.onRemoteMutation(spyHandler);
+
+            const duplicateEvent = {
+                type: "CANDIDATE_SAVED" as const,
+                key: "dedup_test",
+                candidate: { word: "重複テスト" },
+                mutationId: "mut_test_12345",
+                timestamp: Date.now(),
+            };
+
+            // Broadcast the same mutationId twice
+            syncA.broadcastMutation(duplicateEvent);
+            syncA.broadcastMutation(duplicateEvent);
+
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            // Handler on tab B must be called only once
+            expect(spyHandler).toHaveBeenCalledTimes(1);
+        });
+
+        it("automatically generates mutationId, senderId, and timestamp on local mutation", async () => {
+            let capturedEvent: any = null;
+            syncB.onRemoteMutation((event) => {
+                capturedEvent = event;
+            });
+
+            await providerA.registerCandidate("id_test", new Candidate("IDテスト"));
+
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            expect(capturedEvent).toBeDefined();
+            expect(capturedEvent.mutationId).toBeDefined();
+            expect(typeof capturedEvent.mutationId).toBe("string");
+            expect(capturedEvent.mutationId.length).toBeGreaterThan(0);
+            expect(capturedEvent.senderId).toBe(providerA.getSenderId());
+            expect(capturedEvent.timestamp).toBeDefined();
+            expect(typeof capturedEvent.timestamp).toBe("number");
+        });
+
+        it("ignores incoming mutations matching provider's own senderId", async () => {
+            const spySave = vi.spyOn(userStorageB, "loadUserEntries");
+
+            // Manually inject a message whose senderId matches providerB's senderId
+            syncA.broadcastMutation({
+                type: "MUTATED",
+                senderId: providerB.getSenderId(),
+                mutationId: "self_sender_mut_999",
+            });
+
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            // providerB should ignore the event because it matches its own senderId
+            expect(spySave).not.toHaveBeenCalled();
+        });
     });
 });

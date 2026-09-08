@@ -21,6 +21,8 @@ export interface IUserJisyoSyncEvent {
     candidate?: { word: string; annotation?: string };
     selectedIndex?: number;
     senderId?: string;
+    mutationId?: string;
+    timestamp?: number;
 }
 
 /**
@@ -46,6 +48,9 @@ export class CompositeJisyoProvider implements IJisyoProvider {
     private readonly userStorage: IUserJisyoStorage;
     private readonly systemStorages: IJisyoStorage[];
     private readonly syncNotifier?: IUserJisyoSyncNotifier;
+    private readonly senderId: string;
+    private readonly processedMutationIds: Set<string> = new Set();
+    private readonly maxProcessedMutations = 100;
 
     private userDictionary: Map<string, Candidate[]> = new Map();
     private isLoaded = false;
@@ -55,11 +60,13 @@ export class CompositeJisyoProvider implements IJisyoProvider {
     constructor(
         userStorage: IUserJisyoStorage,
         systemStorages: IJisyoStorage[] = [],
-        syncNotifier?: IUserJisyoSyncNotifier
+        syncNotifier?: IUserJisyoSyncNotifier,
+        senderId?: string
     ) {
         this.userStorage = userStorage;
         this.systemStorages = [...systemStorages];
         this.syncNotifier = syncNotifier;
+        this.senderId = senderId ?? this.generateSenderId();
 
         if (this.syncNotifier) {
             this.unsubscribeSync = this.syncNotifier.onRemoteMutation((event) => {
@@ -68,6 +75,49 @@ export class CompositeJisyoProvider implements IJisyoProvider {
                 });
             });
         }
+    }
+
+    private generateSenderId(): string {
+        return (
+            "cjp_" +
+            Math.random().toString(36).substring(2, 10) +
+            "_" +
+            Date.now().toString(36)
+        );
+    }
+
+    private generateMutationId(): string {
+        return (
+            this.senderId +
+            "_" +
+            Date.now().toString(36) +
+            "_" +
+            Math.random().toString(36).substring(2, 8)
+        );
+    }
+
+    private markMutationProcessed(mutationId?: string): boolean {
+        if (!mutationId) {
+            return false;
+        }
+        if (this.processedMutationIds.has(mutationId)) {
+            return true;
+        }
+        this.processedMutationIds.add(mutationId);
+        if (this.processedMutationIds.size > this.maxProcessedMutations) {
+            const first = this.processedMutationIds.values().next().value;
+            if (first !== undefined) {
+                this.processedMutationIds.delete(first);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns the sender ID associated with this provider instance.
+     */
+    public getSenderId(): string {
+        return this.senderId;
     }
 
     /**
@@ -104,7 +154,19 @@ export class CompositeJisyoProvider implements IJisyoProvider {
      * Handles remote mutation events from other tabs or windows.
      */
     private async handleRemoteMutation(event?: IUserJisyoSyncEvent): Promise<void> {
-        if (event?.type === "CANDIDATE_SAVED" && event.key && event.candidate) {
+        if (!event) return;
+
+        // Ignore self-originated events
+        if (event.senderId && event.senderId === this.senderId) {
+            return;
+        }
+
+        // Ignore already processed duplicate mutations
+        if (event.mutationId && this.markMutationProcessed(event.mutationId)) {
+            return;
+        }
+
+        if (event.type === "CANDIDATE_SAVED" && event.key && event.candidate) {
             const list = this.userDictionary.get(event.key) ?? [];
             const idx = list.findIndex((c) => c.word === event.candidate!.word);
             if (idx !== -1) {
@@ -115,7 +177,7 @@ export class CompositeJisyoProvider implements IJisyoProvider {
             return;
         }
 
-        if (event?.type === "CANDIDATE_DELETED" && event.key && event.candidate) {
+        if (event.type === "CANDIDATE_DELETED" && event.key && event.candidate) {
             const list = this.userDictionary.get(event.key);
             if (list) {
                 const idx = list.findIndex((c) => c.word === event.candidate!.word);
@@ -211,11 +273,17 @@ export class CompositeJisyoProvider implements IJisyoProvider {
         const success = await this.userStorage.saveCandidate(key, candidate);
 
         if (success) {
+            const mutationId = this.generateMutationId();
+            this.markMutationProcessed(mutationId);
+
             // Broadcast to remote tabs
             this.syncNotifier?.broadcastMutation({
                 type: "CANDIDATE_SAVED",
                 key,
                 candidate: { word: candidate.word, annotation: candidate.annotation },
+                senderId: this.senderId,
+                mutationId,
+                timestamp: Date.now(),
             });
         }
 
@@ -280,11 +348,17 @@ export class CompositeJisyoProvider implements IJisyoProvider {
         const success = await this.userStorage.deleteCandidate(key, candidate);
 
         if (success) {
+            const mutationId = this.generateMutationId();
+            this.markMutationProcessed(mutationId);
+
             // Broadcast to remote tabs
             this.syncNotifier?.broadcastMutation({
                 type: "CANDIDATE_DELETED",
                 key,
                 candidate: { word: candidate.word, annotation: candidate.annotation },
+                senderId: this.senderId,
+                mutationId,
+                timestamp: Date.now(),
             });
         }
 

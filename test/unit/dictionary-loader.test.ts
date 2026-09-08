@@ -60,4 +60,58 @@ describe("DictionaryLoader", () => {
         const reimported = await DictionaryLoader.ensureInitialized(store, { force: true });
         expect(reimported).toBe(countFirst);
     });
+
+    it("marks dictionary import completed with metadata record", async () => {
+        await DictionaryLoader.ensureInitialized(store, { dictId: "test_dict", version: "1.0.0" });
+
+        const status = await store.getImportStatus("test_dict");
+        expect(status).toBeDefined();
+        expect(status?.completed).toBe(true);
+        expect(status?.version).toBe("1.0.0");
+        expect(status?.entryCount).toBeGreaterThan(200);
+        expect(await store.isImportCompleted("test_dict", "1.0.0")).toBe(true);
+    });
+
+    it("recovers from interrupted / partial import by clearing partial data and re-importing", async () => {
+        // Simulate an interrupted import: store has 1 entry, but status is unrecorded or completed=false
+        await store.importEntries([
+            { key: "partial_key", candidates: [{ word: "partial_word" } as any] },
+        ]);
+        expect(await store.count()).toBe(1);
+
+        // Import status marked incomplete
+        await store.setImportStatus({
+            dictId: "dict/SKK-JISYO.S",
+            version: "1.0.0",
+            completed: false,
+            entryCount: 1,
+            timestamp: Date.now(),
+        });
+
+        // ensureInitialized should detect incomplete status, clear partial entry, and perform full import
+        const imported = await DictionaryLoader.ensureInitialized(store);
+        expect(imported).toBeGreaterThan(200);
+
+        // Partial entry should have been replaced
+        const partialLookup = await store.lookup("partial_key");
+        expect(partialLookup).toBeUndefined();
+
+        const completedStatus = await store.getImportStatus("dict/SKK-JISYO.S");
+        expect(completedStatus?.completed).toBe(true);
+    });
+
+    it("re-imports when dictionary version changes", async () => {
+        // Initial import with v1.0.0
+        await DictionaryLoader.ensureInitialized(store, { dictId: "ver_test", version: "1.0.0" });
+        const v1Status = await store.getImportStatus("ver_test");
+        expect(v1Status?.version).toBe("1.0.0");
+
+        // Requesting with v2.0.0 should re-import
+        const reimported = await DictionaryLoader.ensureInitialized(store, { dictId: "ver_test", version: "2.0.0" });
+        expect(reimported).toBeGreaterThan(200);
+
+        const v2Status = await store.getImportStatus("ver_test");
+        expect(v2Status?.version).toBe("2.0.0");
+        expect(v2Status?.completed).toBe(true);
+    });
 });

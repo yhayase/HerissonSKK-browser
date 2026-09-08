@@ -33,7 +33,7 @@ export interface IndexedDbUserStoreOptions {
     storeName?: string;
 
     /**
-     * Database schema version. Defaults to 2.
+     * Database schema version. Defaults to 3.
      */
     version?: number;
 
@@ -61,7 +61,7 @@ export class IndexedDbUserStore implements IUserJisyoStorage {
     constructor(options?: IndexedDbUserStoreOptions) {
         this.dbName = options?.dbName ?? "skk_dictionary";
         this.storeName = options?.storeName ?? "user_jisyo";
-        this.version = options?.version ?? 2;
+        this.version = options?.version ?? 3;
         this.idbFactory = options?.indexedDB;
     }
 
@@ -109,6 +109,9 @@ export class IndexedDbUserStore implements IUserJisyoStorage {
                     }
                     if (!db.objectStoreNames.contains("user_jisyo")) {
                         db.createObjectStore("user_jisyo", { keyPath: "key" });
+                    }
+                    if (!db.objectStoreNames.contains("system_metadata")) {
+                        db.createObjectStore("system_metadata", { keyPath: "dictId" });
                     }
                     if (!db.objectStoreNames.contains(this.storeName)) {
                         db.createObjectStore(this.storeName, { keyPath: "key" });

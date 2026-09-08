@@ -21,6 +21,8 @@ export interface RuntimeMessageSyncOptions {
  */
 export class RuntimeMessageSync implements IUserJisyoSyncNotifier {
     private readonly senderId: string;
+    private readonly processedMutationIds: Set<string> = new Set();
+    private readonly maxProcessedMutations = 100;
     private handlers: Set<(event: IUserJisyoSyncEvent) => void> = new Set();
     private messageListener: ((message: any, sender: any, sendResponse?: any) => void) | null = null;
     private isClosed = false;
@@ -38,6 +40,33 @@ export class RuntimeMessageSync implements IUserJisyoSyncNotifier {
         );
     }
 
+    private generateMutationId(): string {
+        return (
+            this.senderId +
+            "_" +
+            Date.now().toString(36) +
+            "_" +
+            Math.random().toString(36).substring(2, 8)
+        );
+    }
+
+    private markMutationProcessed(mutationId?: string): boolean {
+        if (!mutationId) {
+            return false;
+        }
+        if (this.processedMutationIds.has(mutationId)) {
+            return true;
+        }
+        this.processedMutationIds.add(mutationId);
+        if (this.processedMutationIds.size > this.maxProcessedMutations) {
+            const first = this.processedMutationIds.values().next().value;
+            if (first !== undefined) {
+                this.processedMutationIds.delete(first);
+            }
+        }
+        return false;
+    }
+
     public getSenderId(): string {
         return this.senderId;
     }
@@ -51,6 +80,10 @@ export class RuntimeMessageSync implements IUserJisyoSyncNotifier {
                 const event = message.event as IUserJisyoSyncEvent;
                 // Ignore self-broadcasts from the same content script
                 if (event.senderId && event.senderId === this.senderId) {
+                    return;
+                }
+                // Ignore duplicate mutations
+                if (event.mutationId && this.markMutationProcessed(event.mutationId)) {
                     return;
                 }
                 for (const handler of this.handlers) {
@@ -82,9 +115,14 @@ export class RuntimeMessageSync implements IUserJisyoSyncNotifier {
             return;
         }
 
+        const mutationId = event?.mutationId ?? this.generateMutationId();
+        this.markMutationProcessed(mutationId);
+
         const syncEvent: IUserJisyoSyncEvent = {
             type: event?.type ?? "MUTATED",
-            senderId: this.senderId,
+            senderId: event?.senderId ?? this.senderId,
+            mutationId,
+            timestamp: event?.timestamp ?? Date.now(),
             ...(event?.key ? { key: event.key } : {}),
             ...(event?.candidate ? { candidate: event.candidate } : {}),
             ...(event?.selectedIndex !== undefined ? { selectedIndex: event.selectedIndex } : {}),
