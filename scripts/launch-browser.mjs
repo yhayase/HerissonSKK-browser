@@ -8,8 +8,32 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const EXT_PATH = path.resolve(ROOT, '.output/chrome-mv3');
 const PUBLIC_DIR = path.resolve(ROOT, 'public');
-const CHROME_PATH = path.resolve(ROOT, 'chrome/linux-152.0.7977.82/chrome-linux64/chrome');
+const CHROME_PATH = process.env.CHROME_BIN || path.resolve(ROOT, 'chrome/linux-152.0.7977.82/chrome-linux64/chrome');
+import { execSync } from 'child_process';
+
+// Ensure .output/chrome-mv3 exists; if not, build it
+if (!fs.existsSync(path.join(EXT_PATH, 'manifest.json'))) {
+  console.log('[Build] Building extension before launching...');
+  execSync('npm run build', { cwd: ROOT, stdio: 'inherit' });
+}
+
 const PROFILE_DIR = path.resolve(ROOT, '.browser-profile');
+
+const cleanRequested = process.argv.includes('--clean');
+if (cleanRequested) {
+  console.log('[Browser] Cleaning profile directory (--clean)...');
+  fs.rmSync(PROFILE_DIR, { recursive: true, force: true });
+} else {
+  // Remove stale singleton locks from previous crashed or killed Chrome processes
+  for (const lock of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+    const lockPath = path.join(PROFILE_DIR, lock);
+    if (fs.existsSync(lockPath)) {
+      try {
+        fs.unlinkSync(lockPath);
+      } catch {}
+    }
+  }
+}
 
 // Ensure profile dir exists
 fs.mkdirSync(PROFILE_DIR, { recursive: true });

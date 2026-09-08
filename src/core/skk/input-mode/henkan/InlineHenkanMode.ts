@@ -60,7 +60,7 @@ export class InlineHenkanMode extends AbstractHenkanMode {
         if (key === 'l') {
             this.jisyoEntry.onCandidateSelected(this.editor.getJisyoProvider(), this.candidateIndex);
             await this.fixateCandidate(context);
-            this.editor.setInputMode(AsciiMode.getInstance());
+            this.editor.setInputMode(AsciiMode.getInstance(this.editor));
             return;
         }
 
@@ -101,7 +101,7 @@ export class InlineHenkanMode extends AbstractHenkanMode {
         if (key === 'L') {
             this.jisyoEntry.onCandidateSelected(this.editor.getJisyoProvider(), this.candidateIndex);
             await this.fixateCandidate(context);
-            this.editor.setInputMode(ZeneiMode.getInstance());
+            this.editor.setInputMode(ZeneiMode.getInstance(this.editor));
             return;
         }
 

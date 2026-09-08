@@ -5,14 +5,23 @@ import { EditorFactory } from "../core/skk/editor/EditorFactory";
 import type { IJisyoProvider } from "../core/skk/jisyo/IJisyoProvider";
 import { SimpleMemoryJisyoProvider } from "../core/skk/jisyo/SimpleMemoryJisyoProvider";
 import { Candidate } from "../core/skk/jisyo/candidate";
+import type { Entry } from "../core/skk/jisyo/entry";
 import type { IInputMode } from "../core/skk/input-mode/IInputMode";
 import { HiraganaMode } from "../core/skk/input-mode/HiraganaMode";
 import { KatakanaMode } from "../core/skk/input-mode/KatakanaMode";
 import { ZeneiMode } from "../core/skk/input-mode/ZeneiMode";
 import { AsciiMode } from "../core/skk/input-mode/AsciiMode";
+import { RegistrationMode, MAX_REGISTRATION_DEPTH } from "../core/skk/input-mode/henkan/RegistrationMode";
 import { FloatingHUD } from "../hud/FloatingHUD";
+import { RegistrationModal } from "../hud/RegistrationModal";
+import type { IEditorTarget, IEditorSelectionSnapshot } from "./targets/IEditorTarget";
+import { createEditorTarget } from "./targets/EditorTargetFactory";
+import { InputElementTarget } from "./targets/InputElementTarget";
 import { getActiveCaretCoordinates } from "./CaretPosition";
 import { insertText, isInputElement, isTextAreaElement, isSelectableInput } from "./TextInserter";
+import { isTargetEditable } from "./DOMUtils";
+import { KakuteiMode } from "../core/skk/input-mode/henkan/KakuteiMode";
+import { AbstractKanaMode } from "../core/skk/input-mode/AbstractKanaMode";
 
 export type TargetElementSupplier = Element | (() => Element | null) | null;
 
@@ -34,6 +43,9 @@ export class BrowserEditorAdapter implements IEditor {
     private targetSupplier?: TargetElementSupplier;
     private currentInputMode: IInputMode;
 
+    // Composition session/generation counter to discard delayed/in-flight async lookups
+    private currentCompositionSession: number = 0;
+
     // In-memory SKK preedit and conversion state
     private inMidashigo: boolean = false;
     private midashigoText: string = "";
@@ -51,6 +63,12 @@ export class BrowserEditorAdapter implements IEditor {
     private registrationYomi?: string;
     private registrationOkuri?: string;
     private lastInsertedResult: { success: boolean; method: string } | null = null;
+    private registrationModal: RegistrationModal | null = null;
+    private originalEditorTarget: IEditorTarget | null = null;
+    private originalSelectionSnapshot: IEditorSelectionSnapshot | null = null;
+    private pendingRegistrationTarget: IEditorTarget | null = null;
+
+    private activeEditorElement: Element | null = null;
 
     constructor(
         hud?: FloatingHUD,
@@ -61,6 +79,7 @@ export class BrowserEditorAdapter implements IEditor {
         this.hud = hud ?? new FloatingHUD();
         this.jisyoProvider = jisyoProvider ?? new SimpleMemoryJisyoProvider();
         this.targetSupplier = target;
+        this.activeEditorElement = typeof target === "function" ? target() : (target ?? null);
         EditorFactory.setInstance(this);
         this.currentInputMode = initialMode ?? HiraganaMode.getInstance();
     }
@@ -81,7 +100,50 @@ export class BrowserEditorAdapter implements IEditor {
     }
 
     public setTargetElement(target: TargetElementSupplier): void {
+        const newEl = typeof target === "function" ? target() : target;
+        const prevEl = this.activeEditorElement ?? this.getTargetElement();
+
+        if (prevEl !== newEl) {
+            this.currentCompositionSession++;
+            if (this.currentInputMode instanceof RegistrationMode) {
+                void this.currentInputMode.cancelRegistration();
+            }
+
+            const hasComposition =
+                this.inMidashigo ||
+                this.currentCandidate !== undefined ||
+                this.remainingRomaji.length > 0;
+
+            if (hasComposition) {
+                void this.cancelComposition();
+            }
+        }
+
         this.targetSupplier = target;
+        this.activeEditorElement = newEl;
+    }
+
+    public async cancelComposition(): Promise<void> {
+        this.currentCompositionSession++;
+        this.inMidashigo = false;
+        this.midashigoText = "";
+        this.remainingRomaji = "";
+        this.isOkuri = false;
+        this.currentCandidate = undefined;
+        this.currentOkuri = "";
+        this.currentSuffix = "";
+        this.candidateList = [];
+        this.candidateAlphabetList = [];
+        if (this.lastStatus.startsWith("[辞書登録:")) {
+            this.lastStatus = "";
+        }
+
+        if (this.currentInputMode instanceof AbstractKanaMode) {
+            const kakuteiMode = KakuteiMode.create(this.currentInputMode, this);
+            kakuteiMode.reset();
+            this.currentInputMode.setHenkanMode(kakuteiMode);
+            await this.currentInputMode.reset();
+        }
     }
 
     public getHUD(): FloatingHUD {
@@ -139,10 +201,53 @@ export class BrowserEditorAdapter implements IEditor {
         return this.registrationOkuri;
     }
 
+    public getCurrentCompositionSession(): number {
+        return this.currentCompositionSession;
+    }
+
+    public advanceCompositionSession(): number {
+        return ++this.currentCompositionSession;
+    }
+
+    public async requestCandidates(key: string): Promise<Entry | undefined> {
+        const session = this.currentCompositionSession;
+        const entry = await this.jisyoProvider.lookupCandidates(key);
+        if (session !== this.currentCompositionSession) {
+            return undefined;
+        }
+        return entry;
+    }
+
+    public async startHenkan(key?: string): Promise<Entry | undefined> {
+        const lookupKey = key ?? this.midashigoText;
+        if (!lookupKey) {
+            return undefined;
+        }
+        const session = this.currentCompositionSession;
+        const entry = await this.jisyoProvider.lookupCandidates(lookupKey);
+        if (session !== this.currentCompositionSession) {
+            return undefined;
+        }
+        return entry;
+    }
+
+    public async lookupCandidates(key: string): Promise<Entry | undefined> {
+        return this.requestCandidates(key);
+    }
+
     // --- IEditor Implementation ---
 
     public getJisyoProvider(): IJisyoProvider {
-        return this.jisyoProvider;
+        const self = this;
+        return new Proxy(this.jisyoProvider, {
+            get(target, prop, receiver) {
+                if (prop === "lookupCandidates") {
+                    return (key: string) => self.requestCandidates(key);
+                }
+                const val = Reflect.get(target, prop, receiver);
+                return typeof val === "function" ? val.bind(target) : val;
+            }
+        });
     }
 
     public setJisyoProvider(provider: IJisyoProvider): void {
@@ -150,7 +255,44 @@ export class BrowserEditorAdapter implements IEditor {
     }
 
     public setInputMode(mode: IInputMode): void {
+        const prevMode = this.currentInputMode;
         this.currentInputMode = mode;
+
+        if (prevMode instanceof RegistrationMode) {
+            const modal = this.registrationModal ?? RegistrationModal.getActiveModal();
+            if (mode instanceof RegistrationMode && mode === prevMode.getParentRegistration()) {
+                // Nested pop back to parent registration session:
+                if (modal && modal.isOpen()) {
+                    const parentInput = modal.popSession();
+                    if (parentInput) {
+                        mode.getMiniBufferEditor().setTarget(new InputElementTarget(parentInput));
+                    }
+                }
+            } else if (!(mode instanceof RegistrationMode)) {
+                // Root exit from registration (confirm, abort, or cancel):
+                const origTarget = this.originalEditorTarget ?? modal?.getOriginalTarget() ?? null;
+                const snapshot = this.originalSelectionSnapshot ?? modal?.getSelectionSnapshot() ?? null;
+                if (snapshot) {
+                    snapshot.restore();
+                }
+                if (origTarget) {
+                    origTarget.focus();
+                }
+                if (modal && modal.isOpen()) {
+                    modal.close();
+                }
+                this.pendingRegistrationTarget = origTarget;
+                this.registrationModal = null;
+                this.originalEditorTarget = null;
+                this.originalSelectionSnapshot = null;
+                this.lastStatus = "";
+                this.lastErrorMessage = "";
+                this.registrationEditorOpened = false;
+                this.registrationYomi = undefined;
+                this.registrationOkuri = undefined;
+            }
+        }
+
         this.updateHUD();
     }
 
@@ -167,6 +309,17 @@ export class BrowserEditorAdapter implements IEditor {
             }
             this.updateHUD();
             return true;
+        }
+
+        if (this.pendingRegistrationTarget) {
+            const target = this.pendingRegistrationTarget;
+            this.pendingRegistrationTarget = null;
+            if (target.isValid()) {
+                target.focus();
+                this.lastInsertedResult = target.insertText(str);
+                this.updateHUD();
+                return true;
+            }
         }
 
         // In KakuteiMode, AsciiMode, ZeneiMode, etc.
@@ -262,6 +415,7 @@ export class BrowserEditorAdapter implements IEditor {
     }
 
     public async clearMidashigo(): Promise<boolean> {
+        this.currentCompositionSession++;
         this.inMidashigo = false;
         this.midashigoText = "";
         this.remainingRomaji = "";
@@ -385,7 +539,61 @@ export class BrowserEditorAdapter implements IEditor {
         this.registrationYomi = yomi;
         this.registrationOkuri = okuri;
         this.lastStatus = `[辞書登録: ${yomi}]`;
-        this.updateHUD();
+
+        const prevMode = this.currentInputMode;
+        const parentReg = prevMode instanceof RegistrationMode ? prevMode : undefined;
+        if (parentReg && parentReg.getDepth() >= MAX_REGISTRATION_DEPTH) {
+            this.showErrorMessage("辞書登録の再帰深度制限を超えました");
+            return;
+        }
+
+        const regMode = new RegistrationMode(yomi, okuri, this, prevMode, parentReg);
+
+        let modal = this.registrationModal;
+        if (!modal) {
+            const active = RegistrationModal.getActiveModal();
+            const myShadow = this.hud.getShadowRoot();
+            if (active && myShadow && active.getShadowRoot() === myShadow) {
+                modal = active;
+            } else if (myShadow) {
+                modal = new RegistrationModal(myShadow);
+            }
+        }
+
+        if (modal) {
+            this.registrationModal = modal;
+            if (parentReg) {
+                const childInput = modal.pushSession(yomi, okuri);
+                if (!childInput) {
+                    this.showErrorMessage("辞書登録の再帰深度制限を超えました");
+                    return;
+                }
+            } else {
+                if (!modal.isOpen()) {
+                    const origEl = this.getTargetElement();
+                    const origTarget = origEl ? createEditorTarget(origEl) : null;
+                    modal.open(yomi, okuri, origTarget);
+                }
+                this.originalEditorTarget = modal.getOriginalTarget();
+                this.originalSelectionSnapshot = modal.getSelectionSnapshot();
+            }
+
+            const activeInput = modal.getActiveInputElement();
+            if (activeInput) {
+                const modalTarget = new InputElementTarget(activeInput);
+                regMode.getMiniBufferEditor().setTarget(modalTarget);
+            }
+            if (modal.getOriginalTarget()) {
+                this.originalEditorTarget = modal.getOriginalTarget();
+                this.originalSelectionSnapshot = modal.getSelectionSnapshot();
+            }
+        }
+
+        this.setInputMode(regMode);
+    }
+
+    public getRegistrationModal(): RegistrationModal | null {
+        return this.registrationModal;
     }
 
     public async registerMidashigo(): Promise<void> {
@@ -393,12 +601,21 @@ export class BrowserEditorAdapter implements IEditor {
     }
 
     public async notifyModeInternalStateChanged(): Promise<void> {
+        this.pendingRegistrationTarget = null;
+        if (!(this.currentInputMode instanceof RegistrationMode)) {
+            if (this.lastStatus.startsWith("[辞書登録:")) {
+                this.lastStatus = "";
+            }
+        }
         this.updateHUD();
     }
 
     // --- Mode & HUD Presentation ---
 
     public getModeBadgeText(): string {
+        if (this.currentInputMode instanceof RegistrationMode) {
+            return this.currentInputMode.toString();
+        }
         if (this.currentInputMode instanceof HiraganaMode) {
             return "かな";
         }
@@ -425,6 +642,15 @@ export class BrowserEditorAdapter implements IEditor {
         }
 
         const target = this.getTargetElement();
+        if (!target || !isTargetEditable(target)) {
+            this.hud.hide();
+            return;
+        }
+
+        if (!(this.currentInputMode instanceof RegistrationMode) && this.lastStatus.startsWith("[辞書登録:")) {
+            this.lastStatus = "";
+        }
+
         const coords = typeof document !== "undefined" ? getActiveCaretCoordinates(target) : null;
         const viewportHeight =
             typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 600;
@@ -435,23 +661,75 @@ export class BrowserEditorAdapter implements IEditor {
         const modeBadge = this.getModeBadgeText();
 
         let preeditStr = "";
-        if (this.currentCandidate) {
-            preeditStr = this.remainingRomaji ? this.remainingRomaji : "";
-        } else if (this.inMidashigo) {
-            preeditStr = "▽" + this.midashigoText + (this.isOkuri ? "*" : "") + this.remainingRomaji;
-        } else if (this.remainingRomaji) {
-            preeditStr = this.remainingRomaji;
-        }
+        let candidateText: string | undefined = undefined;
+        let statusText: string = "";
 
-        const candidateText = this.currentCandidate
-            ? this.currentCandidate.word + (this.currentOkuri || "") + (this.currentSuffix || "")
-            : undefined;
+        const modal = this.registrationModal;
 
-        let statusText = this.currentCandidate?.annotation || this.lastStatus || "";
-        if (this.candidateAlphabetList.length > 0) {
-            statusText = this.candidateAlphabetList
-                .map((key, i) => `${key}:${this.candidateList[i]?.word ?? ""}`)
-                .join(" ");
+        if (this.currentInputMode instanceof RegistrationMode) {
+            const regMode = this.currentInputMode;
+            const mb = regMode.getMiniBufferEditor();
+            const prompt = regMode.getPromptHeader();
+            let mbPreedit = "";
+
+            if (mb.getCurrentCandidate()) {
+                const cand = mb.getCurrentCandidate();
+                candidateText = cand ? cand.word + mb.getCurrentOkuri() + mb.getCurrentSuffix() : undefined;
+                if (mb.getRemainingRomaji()) {
+                    mbPreedit += mb.getRemainingRomaji();
+                }
+            } else if (mb.isInMidashigo()) {
+                mbPreedit += "▽" + mb.getMidashigoText() + (mb.isOkuriStateActive() ? "*" : "") + mb.getRemainingRomaji();
+            } else if (mb.getRemainingRomaji()) {
+                mbPreedit += mb.getRemainingRomaji();
+            }
+
+            const candList = mb.getCandidateList();
+            if (candList.selectionKeys.length > 0) {
+                statusText = candList.selectionKeys
+                    .map((key, i) => `${key}:${candList.candidates[i]?.word ?? ""}`)
+                    .join(" ");
+            } else if (mb.getCurrentCandidate()?.annotation) {
+                statusText = mb.getCurrentCandidate()?.annotation || "";
+            } else {
+                statusText = this.lastStatus || "";
+            }
+
+            if (modal && modal.isOpen()) {
+                let internalBadge = "かな";
+                const internalMode = regMode.getInternalMode();
+                if (internalMode instanceof KatakanaMode) internalBadge = "カナ";
+                else if (internalMode instanceof ZeneiMode) internalBadge = "全英";
+                else if (internalMode instanceof AsciiMode) internalBadge = "アスキー";
+
+                modal.updateStatus({
+                    mode: internalBadge,
+                    preedit: mbPreedit,
+                    candidate: candidateText,
+                    statusText: statusText || undefined
+                });
+            }
+
+            preeditStr = prompt + mb.getCommittedText() + mbPreedit;
+        } else {
+            if (this.currentCandidate) {
+                preeditStr = this.remainingRomaji ? this.remainingRomaji : "";
+            } else if (this.inMidashigo) {
+                preeditStr = "▽" + this.midashigoText + (this.isOkuri ? "*" : "") + this.remainingRomaji;
+            } else if (this.remainingRomaji) {
+                preeditStr = this.remainingRomaji;
+            }
+
+            candidateText = this.currentCandidate
+                ? this.currentCandidate.word + (this.currentOkuri || "") + (this.currentSuffix || "")
+                : undefined;
+
+            statusText = this.currentCandidate?.annotation || this.lastStatus || "";
+            if (this.candidateAlphabetList.length > 0) {
+                statusText = this.candidateAlphabetList
+                    .map((key, i) => `${key}:${this.candidateList[i]?.word ?? ""}`)
+                    .join(" ");
+            }
         }
 
         this.hud.update({
@@ -462,6 +740,10 @@ export class BrowserEditorAdapter implements IEditor {
             candidate: candidateText,
             status: statusText || undefined
         });
+
+        if (modal && modal.isOpen()) {
+            this.hud.hide();
+        }
     }
 
     // --- Private DOM Insertion / Deletion ---

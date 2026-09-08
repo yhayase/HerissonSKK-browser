@@ -21,12 +21,12 @@ export interface IJisyoProvider {
     registerCandidate(key: string, candidate: Candidate): Promise<boolean>;
 
     /**
-     * Reorder candidates for a key by moving a candidate at a specific index to the front
+     * Reorder candidates for a key by moving a candidate to the front
      * @param key The key whose candidates should be reordered
-     * @param selectedIndex The index of the selected candidate that should be moved to front
+     * @param target The Candidate object, candidate word string, or index that should be moved to front
      * @returns True if reordering was successful
      */
-    reorderCandidate(key: string, selectedIndex: number): Promise<boolean>;
+    reorderCandidate(key: string, target: Candidate | string | number): Promise<boolean>;
 
     /**
      * Delete a candidate from the dictionary
