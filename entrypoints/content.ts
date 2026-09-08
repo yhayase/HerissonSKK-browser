@@ -11,7 +11,7 @@ import { isRuntimeAvailable, sendRuntimeMessage } from '@/src/storage/rpc/runtim
 import { FloatingHUD } from '@/src/hud/FloatingHUD';
 import { RegistrationModal } from '@/src/hud/RegistrationModal';
 import { isInputElement, isTextAreaElement } from '@/src/adapter/TextInserter';
-import { getDeepActiveElement } from '@/src/adapter/DOMUtils';
+import { getDeepActiveElement, isTargetEditable } from '@/src/adapter/DOMUtils';
 
 export class SkkContentEngine {
   public adapter: BrowserEditorAdapter;
@@ -63,40 +63,7 @@ export class SkkContentEngine {
   }
 
   public isTargetEditable(el: Element | null): boolean {
-    if (!el) return false;
-
-    if (isInputElement(el)) {
-      if (el.readOnly || el.disabled) return false;
-      const nonTextTypes = [
-        'button',
-        'checkbox',
-        'color',
-        'file',
-        'hidden',
-        'image',
-        'password',
-        'radio',
-        'range',
-        'reset',
-        'submit',
-      ];
-      return !nonTextTypes.includes((el.type || 'text').toLowerCase());
-    }
-
-    if (isTextAreaElement(el)) {
-      if (el.readOnly || el.disabled) return false;
-      return true;
-    }
-
-    if ((el as HTMLElement).isContentEditable) {
-      return true;
-    }
-
-    if (typeof el.closest === 'function' && el.closest('.monaco-editor')) {
-      return true;
-    }
-
-    return false;
+    return isTargetEditable(el);
   }
 
   private keyQueue: Promise<void> = Promise.resolve();
@@ -381,7 +348,13 @@ export default defineContentScript({
     };
 
     window.addEventListener('focusin', updateActiveTarget, { capture: true });
+    window.addEventListener('focusout', () => {
+      setTimeout(updateActiveTarget, 0);
+    }, { capture: true });
     document.addEventListener('selectionchange', updateActiveTarget, { capture: true });
+    window.addEventListener('pointerdown', () => {
+      setTimeout(updateActiveTarget, 0);
+    }, { capture: true });
 
     // Expose engine / adapter to window.__SKK_ENGINE__ for test inspection
     (window as any).__SKK_ENGINE__ = engine;
