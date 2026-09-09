@@ -1,5 +1,6 @@
 import type { IUserJisyoStorage } from "../../core/skk/jisyo/IJisyoStorage";
 import { Candidate } from "../../core/skk/jisyo/candidate";
+import { SKK_DATABASE_VERSION, openSkkDatabase } from "../indexedDbSchema";
 
 /**
  * Candidate data representation stored in IndexedDB for user dictionary.
@@ -33,7 +34,7 @@ export interface IndexedDbUserStoreOptions {
     storeName?: string;
 
     /**
-     * Database schema version. Defaults to 3.
+     * Database schema version. Defaults to 4.
      */
     version?: number;
 
@@ -61,7 +62,7 @@ export class IndexedDbUserStore implements IUserJisyoStorage {
     constructor(options?: IndexedDbUserStoreOptions) {
         this.dbName = options?.dbName ?? "skk_dictionary";
         this.storeName = options?.storeName ?? "user_jisyo";
-        this.version = options?.version ?? 3;
+        this.version = options?.version ?? SKK_DATABASE_VERSION;
         this.idbFactory = options?.indexedDB;
     }
 
@@ -91,43 +92,16 @@ export class IndexedDbUserStore implements IUserJisyoStorage {
                 throw new Error("IndexedDB is not supported in this environment");
             }
 
-            await new Promise<void>((resolve, reject) => {
-                const request = factory.open(this.dbName, this.version);
-
-                request.onblocked = () => {
-                    reject(new Error(`IndexedDB database "${this.dbName}" is blocked by another connection`));
-                };
-
-                request.onerror = () => {
-                    reject(request.error ?? new Error(`Failed to open IndexedDB database "${this.dbName}"`));
-                };
-
-                request.onupgradeneeded = () => {
-                    const db = request.result;
-                    if (!db.objectStoreNames.contains("system_jisyo")) {
-                        db.createObjectStore("system_jisyo", { keyPath: "key" });
-                    }
-                    if (!db.objectStoreNames.contains("user_jisyo")) {
-                        db.createObjectStore("user_jisyo", { keyPath: "key" });
-                    }
-                    if (!db.objectStoreNames.contains("system_metadata")) {
-                        db.createObjectStore("system_metadata", { keyPath: "dictId" });
-                    }
-                    if (!db.objectStoreNames.contains(this.storeName)) {
-                        db.createObjectStore(this.storeName, { keyPath: "key" });
-                    }
-                };
-
-                request.onsuccess = () => {
-                    this.db = request.result;
-
-                    this.db.onversionchange = () => {
-                        this.close();
-                    };
-
-                    resolve();
-                };
-            });
+            const db = await openSkkDatabase(
+                factory,
+                this.dbName,
+                this.version,
+                { name: this.storeName, keyPath: "key" },
+            );
+            this.db = db;
+            db.onversionchange = () => {
+                this.close();
+            };
         })().finally(() => {
             this.initPromise = null;
         });

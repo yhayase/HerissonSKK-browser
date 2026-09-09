@@ -231,9 +231,18 @@ describe("IndexedDbUserStore", () => {
         it("coexists with IndexedDbJisyoStore in the same database without conflicts", async () => {
             // Write system dictionary entry
             const systemStore = new IndexedDbJisyoStore({ dbName: testDbName });
-            await systemStore.importEntries([
+            await systemStore.stageGeneration("skk-jisyo-s", "coexist-generation", [
                 { key: "とうきょう", candidates: [new Candidate("東京-system")] },
             ]);
+            await systemStore.publishGeneration(
+                {
+                    dictId: "skk-jisyo-s",
+                    version: "test",
+                    activeGeneration: "coexist-generation",
+                    entryCount: 1,
+                },
+                0,
+            );
             systemStore.close();
 
             // Write user dictionary entry

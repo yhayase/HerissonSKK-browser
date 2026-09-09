@@ -1,452 +1,382 @@
 import "fake-indexeddb/auto";
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { IndexedDbJisyoStore } from "../../src/storage/jisyo/IndexedDbJisyoStore";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Candidate } from "../../src/core/skk/jisyo/candidate";
 import type { JisyoEntry } from "../../src/core/skk/jisyo/JisyoParser";
+import { IndexedDbJisyoStore } from "../../src/storage/jisyo/IndexedDbJisyoStore";
+import { IndexedDbUserStore } from "../../src/storage/user-jisyo/IndexedDbUserStore";
+import { DEFAULT_STARTER_DICTIONARY_ID } from "../../src/storage/indexedDbSchema";
 
-describe("IndexedDbJisyoStore", () => {
-    let store: IndexedDbJisyoStore;
-    let testDbName: string;
+const openedStores: Array<IndexedDbJisyoStore | IndexedDbUserStore> = [];
+const databaseNames = new Set<string>();
 
-    beforeEach(async () => {
-        testDbName = `test_skk_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-        store = new IndexedDbJisyoStore({ dbName: testDbName });
-    });
+function databaseName(label: string): string {
+    const name = `test_${label}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    databaseNames.add(name);
+    return name;
+}
 
-    afterEach(async () => {
-        if (store.isOpen) {
-            store.close();
-        }
-        await IndexedDbJisyoStore.deleteDatabase(testDbName);
-    });
+function entries(values: Record<string, Array<[string, string?]>>): JisyoEntry[] {
+    return Object.entries(values).map(([key, candidates]) => ({
+        key,
+        candidates: candidates.map(([word, annotation]) => new Candidate(word, annotation)),
+    }));
+}
 
-    describe("Initialization & Lifecycle", () => {
-        it("initializes and creates object store", async () => {
-            expect(store.isOpen).toBe(false);
-            await store.init();
-            expect(store.isOpen).toBe(true);
-        });
+async function activate(
+    store: IndexedDbJisyoStore,
+    dictId: string,
+    version: string,
+    values: Record<string, Array<[string, string?]>>,
+    generation = `generation-${Math.random().toString(36).slice(2)}`,
+): Promise<string> {
+    const active = await store.getActiveDictionary(dictId);
+    const count = await store.stageGeneration(dictId, generation, entries(values), 2);
+    const published = await store.publishGeneration(
+        { dictId, version, activeGeneration: generation, entryCount: count },
+        active?.revision ?? 0,
+    );
+    expect(published).toBe(true);
+    return generation;
+}
 
-        it("handles multiple init() calls safely without error", async () => {
-            await store.init();
-            await store.init();
-            expect(store.isOpen).toBe(true);
-        });
-
-        it("handles concurrent initialization without multiple DB opens or race conditions", async () => {
-            const openSpy = vi.spyOn(indexedDB, "open");
-
-            // Execute concurrent init and lookup calls before DB is initialized
-            const [init1, init2, lookup1, lookup2] = await Promise.all([
-                store.init(),
-                store.init(),
-                store.lookup("key1"),
-                store.lookup("key2"),
-            ]);
-
-            expect(store.isOpen).toBe(true);
-            expect(lookup1).toBeUndefined();
-            expect(lookup2).toBeUndefined();
-            // indexedDB.open should only be called once for this store
-            expect(openSpy).toHaveBeenCalledTimes(1);
-
-            openSpy.mockRestore();
-        });
-
-        it("auto-initializes on lookup if init() was not explicitly called", async () => {
-            expect(store.isOpen).toBe(false);
-            const result = await store.lookup("とうきょう");
-            expect(result).toBeUndefined();
-            expect(store.isOpen).toBe(true);
-        });
-
-        it("closes connection and updates isOpen state", async () => {
-            await store.init();
-            expect(store.isOpen).toBe(true);
-            store.close();
-            expect(store.isOpen).toBe(false);
-        });
-    });
-
-    describe("importEntries", () => {
-        it("imports entries from a Map<string, Candidate[]>", async () => {
-            const map = new Map<string, Candidate[]>([
-                ["とうきょう", [new Candidate("東京"), new Candidate("とうきょう")]],
-                ["にほん", [new Candidate("日本", "にほん")]],
-            ]);
-
-            const importedCount = await store.importEntries(map);
-            expect(importedCount).toBe(2);
-
-            const count = await store.count();
-            expect(count).toBe(2);
-
-            const entry = await store.lookup("とうきょう");
-            expect(entry).toBeDefined();
-            expect(entry!.getMidashigo()).toBe("とうきょう");
-            expect(entry!.getCandidateList()).toHaveLength(2);
-            expect(entry!.getCandidateList()[0]!.word).toBe("東京");
-            expect(entry!.getCandidateList()[1]!.word).toBe("とうきょう");
-        });
-
-        it("imports entries from an Iterable of JisyoEntry", async () => {
-            const entries: JisyoEntry[] = [
-                { key: "いk", candidates: [new Candidate("行"), new Candidate("逝")] },
-                { key: "だい>", candidates: [new Candidate("大")] },
-                { key: ">さま", candidates: [new Candidate("様")] },
-            ];
-
-            const importedCount = await store.importEntries(entries);
-            expect(importedCount).toBe(3);
-
-            const ik = await store.lookup("いk");
-            expect(ik).toBeDefined();
-            expect(ik!.getCandidateList().map((c) => c.word)).toEqual(["行", "逝"]);
-
-            const dai = await store.lookup("だい>");
-            expect(dai).toBeDefined();
-            expect(dai!.getCandidateList()[0]!.word).toBe("大");
-        });
-
-        it("invokes progressCallback across chunked transactions", async () => {
-            const entries: JisyoEntry[] = [];
-            for (let i = 0; i < 250; i++) {
-                entries.push({
-                    key: `key_${i}`,
-                    candidates: [new Candidate(`word_${i}`)],
-                });
-            }
-
-            const progressSteps: number[] = [];
-            const importedCount = await store.importEntries(entries, 100, (count) => {
-                progressSteps.push(count);
+async function seedLegacyDatabase(
+    name: string,
+    version: 1 | 2 | 3,
+    completed = true,
+): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open(name, version);
+        request.onupgradeneeded = () => {
+            const db = request.result;
+            db.createObjectStore("system_jisyo", { keyPath: "key" });
+            if (version >= 2) db.createObjectStore("user_jisyo", { keyPath: "key" });
+            if (version >= 3) db.createObjectStore("system_metadata", { keyPath: "dictId" });
+        };
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+            const db = request.result;
+            const stores = ["system_jisyo"];
+            if (version >= 2) stores.push("user_jisyo");
+            if (version >= 3) stores.push("system_metadata");
+            const tx = db.transaction(stores, "readwrite");
+            tx.objectStore("system_jisyo").put({
+                key: "れがしー",
+                candidates: [{ word: "旧候補", annotation: "旧注釈" }],
             });
-
-            expect(importedCount).toBe(250);
-            expect(progressSteps).toEqual([100, 200, 250]);
-        });
-
-        it("skips invalid entries with empty keys or empty candidate lists", async () => {
-            const entries: JisyoEntry[] = [
-                { key: "", candidates: [new Candidate("無効")] },
-                { key: "valid", candidates: [new Candidate("有効")] },
-                { key: "empty_cands", candidates: [] },
-            ];
-
-            const count = await store.importEntries(entries);
-            expect(count).toBe(1);
-
-            const valid = await store.lookup("valid");
-            expect(valid).toBeDefined();
-        });
-
-        it("efficiently handles bulk import of thousands of records", async () => {
-            const total = 3000;
-            const entries: JisyoEntry[] = [];
-            for (let i = 0; i < total; i++) {
-                entries.push({
-                    key: `k_${i}`,
-                    candidates: [new Candidate(`w_${i}`)],
+            if (version >= 2) {
+                tx.objectStore("user_jisyo").put({
+                    key: "がくしゅう",
+                    candidates: [
+                        { word: "第二候補", annotation: "二" },
+                        { word: "第一候補", annotation: "一" },
+                    ],
+                    updatedAt: 12345,
                 });
             }
-
-            const importedCount = await store.importEntries(entries, 1000);
-            expect(importedCount).toBe(total);
-
-            const count = await store.count();
-            expect(count).toBe(total);
-
-            const mid = await store.lookup("k_1500");
-            expect(mid).toBeDefined();
-            expect(mid!.getCandidateList()[0]!.word).toBe("w_1500");
-        });
-    });
-
-    describe("lookup (Exact Search)", () => {
-        beforeEach(async () => {
-            const entries: JisyoEntry[] = [
-                {
-                    key: "とうきょう",
-                    candidates: [new Candidate("東京"), new Candidate("とうきょう")],
-                },
-                {
-                    key: "にほん",
-                    candidates: [new Candidate("日本", "にほん"), new Candidate("二本")],
-                },
-                {
-                    key: "DOS/V",
-                    candidates: [new Candidate("DOS/V")],
-                },
-            ];
-            await store.importEntries(entries);
-        });
-
-        it("returns Entry with candidates for matching key", async () => {
-            const entry = await store.lookup("とうきょう");
-            expect(entry).toBeDefined();
-            expect(entry!.getMidashigo()).toBe("とうきょう");
-            expect(entry!.getCandidateList()).toHaveLength(2);
-            expect(entry!.getCandidateList()[0]!.word).toBe("東京");
-            expect(entry!.getCandidateList()[1]!.word).toBe("とうきょう");
-        });
-
-        it("preserves annotations accurately", async () => {
-            const entry = await store.lookup("にほん");
-            expect(entry).toBeDefined();
-            const cands = entry!.getCandidateList();
-            expect(cands[0]!.word).toBe("日本");
-            expect(cands[0]!.annotation).toBe("にほん");
-            expect(cands[1]!.word).toBe("二本");
-            expect(cands[1]!.annotation).toBeUndefined();
-        });
-
-        it("returns undefined for non-existent key", async () => {
-            const entry = await store.lookup("おおさか");
-            expect(entry).toBeUndefined();
-        });
-
-        it("supports keys with special characters", async () => {
-            const entry = await store.lookup("DOS/V");
-            expect(entry).toBeDefined();
-            expect(entry!.getCandidateList()[0]!.word).toBe("DOS/V");
-        });
-    });
-
-    describe("lookupPrefix (Prefix Search)", () => {
-        beforeEach(async () => {
-            const entries: JisyoEntry[] = [
-                { key: "とうきょう", candidates: [new Candidate("東京")] },
-                { key: "とうきょう>", candidates: [new Candidate("東京都")] },
-                { key: "とうきょうえき", candidates: [new Candidate("東京駅")] },
-                { key: "とうきょうと", candidates: [new Candidate("東京都")] },
-                { key: "とうけい", candidates: [new Candidate("統計")] },
-                { key: "と", candidates: [new Candidate("戸")] },
-                { key: "おおさか", candidates: [new Candidate("大阪")] },
-            ];
-            await store.importEntries(entries);
-        });
-
-        it("returns all entries starting with prefix", async () => {
-            const results = await store.lookupPrefix("とうきょう");
-            expect(results).toHaveLength(4);
-            const keys = results.map((e) => e.getMidashigo());
-            expect(keys).toEqual(["とうきょう", "とうきょう>", "とうきょうえき", "とうきょうと"]);
-        });
-
-        it("respects limit parameter", async () => {
-            const results = await store.lookupPrefix("とうきょう", 2);
-            expect(results).toHaveLength(2);
-            expect(results[0]!.getMidashigo()).toBe("とうきょう");
-            expect(results[1]!.getMidashigo()).toBe("とうきょう>");
-        });
-
-        it("returns empty array for limit <= 0", async () => {
-            const results = await store.lookupPrefix("とうきょう", 0);
-            expect(results).toEqual([]);
-
-            const negativeResults = await store.lookupPrefix("とうきょう", -1);
-            expect(negativeResults).toEqual([]);
-        });
-
-        it("returns empty array for non-matching prefix", async () => {
-            const results = await store.lookupPrefix("なごや");
-            expect(results).toEqual([]);
-        });
-
-        it("returns matching entries when prefix is single character", async () => {
-            const results = await store.lookupPrefix("と");
-            // keys starting with "と": "と", "とうきょう", "とうきょう>", "とうきょうえき", "とうきょうと", "とうけい"
-            expect(results).toHaveLength(6);
-            expect(results.map((e) => e.getMidashigo())).toContain("と");
-            expect(results.map((e) => e.getMidashigo())).toContain("とうけい");
-            expect(results.map((e) => e.getMidashigo())).not.toContain("おおさか");
-        });
-    });
-
-    describe("Maintenance (clear, count, deleteDatabase)", () => {
-        it("clears all records from store", async () => {
-            await store.importEntries([
-                { key: "k1", candidates: [new Candidate("c1")] },
-                { key: "k2", candidates: [new Candidate("c2")] },
-            ]);
-            expect(await store.count()).toBe(2);
-
-            await store.clear();
-            expect(await store.count()).toBe(0);
-
-            const result = await store.lookup("k1");
-            expect(result).toBeUndefined();
-        });
-
-        it("returns 0 for count on empty store", async () => {
-            await store.init();
-            expect(await store.count()).toBe(0);
-        });
-
-        it("deletes database completely using static deleteDatabase", async () => {
-            await store.importEntries([{ key: "k1", candidates: [new Candidate("c1")] }]);
-            store.close();
-
-            await IndexedDbJisyoStore.deleteDatabase(testDbName);
-
-            // Reopening database should start fresh with count 0
-            const newStore = new IndexedDbJisyoStore({ dbName: testDbName });
-            expect(await newStore.count()).toBe(0);
-            newStore.close();
-        });
-    });
-
-    describe("Error Handling", () => {
-        it("throws error when operations are performed after close()", async () => {
-            await store.init();
-            store.close();
-
-            await expect(store.lookup("key")).rejects.toThrow("IndexedDbJisyoStore is closed");
-            await expect(store.lookupPrefix("pre")).rejects.toThrow("IndexedDbJisyoStore is closed");
-            await expect(store.count()).rejects.toThrow("IndexedDbJisyoStore is closed");
-            await expect(store.clear()).rejects.toThrow("IndexedDbJisyoStore is closed");
-            await expect(store.importEntries([])).rejects.toThrow("IndexedDbJisyoStore is closed");
-        });
-
-        it("allows re-initializing after close()", async () => {
-            await store.importEntries([{ key: "k1", candidates: [new Candidate("c1")] }]);
-            store.close();
-            expect(store.isOpen).toBe(false);
-
-            await store.init();
-            expect(store.isOpen).toBe(true);
-            const entry = await store.lookup("k1");
-            expect(entry).toBeDefined();
-            expect(entry!.getCandidateList()[0]!.word).toBe("c1");
-        });
-
-        it("throws error if IndexedDB is not supported", async () => {
-            const noIdbStore = new IndexedDbJisyoStore({
-                dbName: "unsupported_test",
-                indexedDB: undefined,
-            });
-            // Temporarily hide global indexedDB
-            const orig = globalThis.indexedDB;
-            // @ts-expect-error test simulation
-            delete globalThis.indexedDB;
-
-            try {
-                await expect(noIdbStore.init()).rejects.toThrow(
-                    "IndexedDB is not supported in this environment"
-                );
-            } finally {
-                globalThis.indexedDB = orig;
-            }
-        });
-    });
-
-    describe("Query Latency Verification", () => {
-        it("operates lookup in < 5ms on a populated dataset", async () => {
-            const total = 1000;
-            const entries: JisyoEntry[] = [];
-            for (let i = 0; i < total; i++) {
-                entries.push({
-                    key: `latency_key_${i}`,
-                    candidates: [new Candidate(`candidate_${i}`)],
+            if (version >= 3) {
+                tx.objectStore("system_metadata").put({
+                    dictId: "dict/SKK-JISYO.S",
+                    version: "1.0.0",
+                    completed,
+                    entryCount: 1,
+                    timestamp: 12345,
                 });
             }
-            await store.importEntries(entries);
-
-            // Warm up
-            await store.lookup("latency_key_0");
-
-            // Measure lookup latency over multiple keys
-            const testKeys = ["latency_key_100", "latency_key_500", "latency_key_900", "non_existent"];
-            for (const key of testKeys) {
-                const start = performance.now();
-                await store.lookup(key);
-                const duration = performance.now() - start;
-
-                expect(duration).toBeLessThan(5); // Must be strictly under 5ms
-            }
-        });
-    });
-
-    describe("Import Status Metadata", () => {
-        it("saves and retrieves import status record", async () => {
-            const status = {
-                dictId: "SKK-JISYO.S",
-                version: "1.0.0",
-                completed: true,
-                entryCount: 3000,
-                timestamp: Date.now(),
+            tx.oncomplete = () => {
+                db.close();
+                resolve();
             };
+            tx.onerror = () => reject(tx.error);
+        };
+    });
+}
 
-            await store.setImportStatus(status);
-            const retrieved = await store.getImportStatus("SKK-JISYO.S");
+afterEach(async () => {
+    for (const store of openedStores.splice(0)) {
+        if (store.isOpen) store.close();
+    }
+    for (const name of databaseNames) await IndexedDbJisyoStore.deleteDatabase(name);
+    databaseNames.clear();
+    vi.restoreAllMocks();
+});
 
-            expect(retrieved).toEqual(status);
+describe("IndexedDbJisyoStore v4", () => {
+    it("初期化と同一インスタンスの並行初期化を安全に処理する", async () => {
+        const store = new IndexedDbJisyoStore({ dbName: databaseName("init") });
+        openedStores.push(store);
+        const openSpy = vi.spyOn(indexedDB, "open");
+
+        await Promise.all([store.init(), store.init(), store.lookup("未登録")]);
+
+        expect(store.isOpen).toBe(true);
+        expect(openSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("設定順で辞書を合成し、先に現れた語と注釈を保持する", async () => {
+        const store = new IndexedDbJisyoStore({
+            dbName: databaseName("priority"),
+            dictionaryIds: ["primary", "secondary"],
+        });
+        openedStores.push(store);
+        await activate(store, "primary", "1", {
+            かんじ: [["漢字", "第一注釈"], ["感じ"]],
+        });
+        await activate(store, "secondary", "1", {
+            かんじ: [["漢字", "第二注釈"], ["幹事"]],
         });
 
-        it("returns undefined for non-existent dictId", async () => {
-            const retrieved = await store.getImportStatus("unknown_dict");
-            expect(retrieved).toBeUndefined();
+        const result = await store.lookup("かんじ");
+
+        expect(result?.getCandidateList().map((candidate) => [candidate.word, candidate.annotation])).toEqual([
+            ["漢字", "第一注釈"],
+            ["感じ", undefined],
+            ["幹事", undefined],
+        ]);
+        expect(await store.count()).toBe(2);
+    });
+
+    it("辞書順を反転すると重複語の優先注釈も反転する", async () => {
+        const name = databaseName("reverse");
+        const writer = new IndexedDbJisyoStore({ dbName: name, dictionaryIds: ["a", "b"] });
+        openedStores.push(writer);
+        await activate(writer, "a", "1", { かな: [["仮名", "A"]] });
+        await activate(writer, "b", "1", { かな: [["仮名", "B"]] });
+
+        const reader = new IndexedDbJisyoStore({ dbName: name, dictionaryIds: ["b", "a"] });
+        openedStores.push(reader);
+        expect((await reader.lookup("かな"))?.getCandidateList()[0]?.annotation).toBe("B");
+    });
+
+    it("前方一致を辞書間で合成して辞書式順の全体上限を適用する", async () => {
+        const store = new IndexedDbJisyoStore({
+            dbName: databaseName("prefix"),
+            dictionaryIds: ["a", "b"],
+        });
+        openedStores.push(store);
+        await activate(store, "a", "1", {
+            あい: [["愛"]],
+            あお: [["青", "A"]],
+        });
+        await activate(store, "b", "1", {
+            あか: [["赤"]],
+            あお: [["蒼"], ["青", "B"]],
         });
 
-        it("isImportCompleted returns true only when status completed is true, version matches, and store is not empty", async () => {
-            const dictId = "test_dict";
-            expect(await store.isImportCompleted(dictId, "1.0.0")).toBe(false);
+        const result = await store.lookupPrefix("あ", 2);
 
-            // Incomplete status
-            await store.setImportStatus({
-                dictId,
-                version: "1.0.0",
-                completed: false,
-                entryCount: 0,
-                timestamp: Date.now(),
-            });
-            expect(await store.isImportCompleted(dictId, "1.0.0")).toBe(false);
+        expect(result.map((entry) => entry.getMidashigo())).toEqual(["あい", "あお"]);
+        expect((await store.lookup("あお"))?.getCandidateList().map((candidate) => candidate.word)).toEqual(["青", "蒼"]);
+    });
 
-            // Completed status but empty store
-            await store.setImportStatus({
-                dictId,
-                version: "1.0.0",
-                completed: true,
-                entryCount: 10,
-                timestamp: Date.now(),
-            });
-            expect(await store.isImportCompleted(dictId, "1.0.0")).toBe(false);
+    it("空世代を有効化すると旧世代の語を返さない", async () => {
+        const store = new IndexedDbJisyoStore({ dbName: databaseName("empty"), dictionaryIds: ["a"] });
+        openedStores.push(store);
+        const oldGeneration = await activate(store, "a", "1", { ふるい: [["古い"]] });
+        const active = await store.getActiveDictionary("a");
+        await store.stageGeneration("a", "empty", []);
+        expect(await store.publishGeneration(
+            { dictId: "a", version: "2", activeGeneration: "empty", entryCount: 0 },
+            active!.revision,
+        )).toBe(true);
+        await store.deleteGeneration("a", oldGeneration);
 
-            // Populated store with matching completed status
-            await store.importEntries([{ key: "t1", candidates: [new Candidate("テスト")] }]);
-            expect(await store.isImportCompleted(dictId, "1.0.0")).toBe(true);
+        expect(await store.lookup("ふるい")).toBeUndefined();
+        expect(await store.isImportCompleted("a", "2")).toBe(true);
+        expect(await store.count("a")).toBe(0);
+    });
 
-            // Version mismatch returns false
-            expect(await store.isImportCompleted(dictId, "2.0.0")).toBe(false);
+    it("catalog と実レコード件数が一致しない辞書を完了扱いしない", async () => {
+        const store = new IndexedDbJisyoStore({ dbName: databaseName("integrity"), dictionaryIds: ["a"] });
+        openedStores.push(store);
+        const generation = await activate(store, "a", "1", { key: [["value"]] });
+
+        await store.deleteGeneration("a", generation);
+
+        expect(await store.isImportCompleted("a", "1")).toBe(false);
+    });
+
+    it("revision が変わった公開要求を拒否して現行世代を保持する", async () => {
+        const store = new IndexedDbJisyoStore({ dbName: databaseName("cas"), dictionaryIds: ["a"] });
+        openedStores.push(store);
+        await activate(store, "a", "1", { key: [["current"]] }, "current");
+        await store.stageGeneration("a", "loser", entries({ key: [["loser"]] }));
+
+        expect(await store.publishGeneration(
+            { dictId: "a", version: "2", activeGeneration: "loser", entryCount: 1 },
+            0,
+        )).toBe(false);
+        expect((await store.lookup("key"))?.getCandidateList()[0]?.word).toBe("current");
+    });
+
+    it("公開件数がステージ件数と違う場合は transaction を中断して旧版を保持する", async () => {
+        const store = new IndexedDbJisyoStore({ dbName: databaseName("abort"), dictionaryIds: ["a"] });
+        openedStores.push(store);
+        await activate(store, "a", "1", { key: [["old"]] }, "old");
+        const active = await store.getActiveDictionary("a");
+        await store.stageGeneration("a", "broken", entries({ key: [["new"]] }));
+
+        await expect(store.publishGeneration(
+            { dictId: "a", version: "2", activeGeneration: "broken", entryCount: 2 },
+            active!.revision,
+        )).rejects.toThrow("publication aborted");
+        expect((await store.lookup("key"))?.getCandidateList()[0]?.word).toBe("old");
+        expect((await store.getActiveDictionary("a"))?.version).toBe("1");
+    });
+
+    it("公開と旧世代削除の間に開始した読み取りは一貫した世代を返す", async () => {
+        const store = new IndexedDbJisyoStore({ dbName: databaseName("snapshot"), dictionaryIds: ["a"] });
+        openedStores.push(store);
+        const oldGeneration = await activate(store, "a", "1", { key: [["old"]] }, "old");
+        const active = await store.getActiveDictionary("a");
+        await store.stageGeneration("a", "new", entries({ key: [["new"]] }));
+
+        const readBeforePublish = store.lookup("key");
+        expect(await store.publishGeneration(
+            { dictId: "a", version: "2", activeGeneration: "new", entryCount: 1 },
+            active!.revision,
+        )).toBe(true);
+        await store.deleteGeneration("a", oldGeneration);
+
+        expect((await readBeforePublish)?.getCandidateList()[0]?.word).toBe("old");
+        expect((await store.lookup("key"))?.getCandidateList()[0]?.word).toBe("new");
+    });
+
+    it("停止済み世代を回収して同一セッションの世代を削除しない", async () => {
+        const store = new IndexedDbJisyoStore({ dbName: databaseName("recovery"), dictionaryIds: ["a"] });
+        openedStores.push(store);
+        await activate(store, "a", "1", { active: [["active"]] }, "active");
+        await store.stageGeneration("a", "old-session-orphan", entries({ orphan: [["orphan"]] }));
+        await store.stageGeneration("a", "live-session-attempt", entries({ live: [["live"]] }));
+        const current = await store.getActiveDictionary("a");
+
+        await store.cleanupAbandonedGenerations("a", "active", "live-session-");
+        expect(await store.publishGeneration(
+            { dictId: "a", version: "2", activeGeneration: "live-session-attempt", entryCount: 1 },
+            current!.revision,
+        )).toBe(true);
+        expect((await store.lookup("live"))?.getCandidateList()[0]?.word).toBe("live");
+    });
+
+    it("close 後の操作を拒否し、明示的な init で再接続できる", async () => {
+        const store = new IndexedDbJisyoStore({ dbName: databaseName("close") });
+        openedStores.push(store);
+        await store.init();
+        store.close();
+        await expect(store.lookup("key")).rejects.toThrow("closed");
+
+        await store.init();
+        expect(store.isOpen).toBe(true);
+    });
+});
+
+describe.each([
+    { version: 1 as const, order: "system-first" },
+    { version: 1 as const, order: "user-first" },
+    { version: 2 as const, order: "system-first" },
+    { version: 2 as const, order: "user-first" },
+    { version: 3 as const, order: "system-first" },
+    { version: 3 as const, order: "user-first" },
+])("v$version migration ($order)", ({ version, order }) => {
+    it("旧システム辞書を読み取り可能にしてユーザー学習を保持する", async () => {
+        const name = databaseName(`migration-${version}-${order}`);
+        await seedLegacyDatabase(name, version);
+        const system = new IndexedDbJisyoStore({ dbName: name });
+        const user = new IndexedDbUserStore({ dbName: name });
+        openedStores.push(system, user);
+
+        if (order === "system-first") {
+            await system.init();
+            await user.init();
+        } else {
+            await user.init();
+            await system.init();
+        }
+
+        expect((await system.lookup("れがしー"))?.getCandidateList()[0]).toMatchObject({
+            word: "旧候補",
+            annotation: "旧注釈",
         });
+        expect((await system.getActiveDictionary(DEFAULT_STARTER_DICTIONARY_ID))?.storage).toBe("legacy");
+        if (version >= 2) {
+            const learned = (await user.loadUserEntries()).get("がくしゅう");
+            expect(learned?.map((candidate) => [candidate.word, candidate.annotation])).toEqual([
+                ["第二候補", "二"],
+                ["第一候補", "一"],
+            ]);
+        }
+    });
+});
 
-        it("deletes import status via deleteImportStatus", async () => {
-            await store.setImportStatus({
-                dictId: "to_delete",
-                version: "1.0.0",
-                completed: true,
-                entryCount: 50,
-                timestamp: Date.now(),
-            });
+describe("v3 incomplete migration", () => {
+    it("未完了の旧システム辞書を有効辞書として採用しない", async () => {
+        const name = databaseName("migration-incomplete");
+        await seedLegacyDatabase(name, 3, false);
+        const store = new IndexedDbJisyoStore({ dbName: name });
+        openedStores.push(store);
 
-            expect(await store.getImportStatus("to_delete")).toBeDefined();
-            await store.deleteImportStatus("to_delete");
-            expect(await store.getImportStatus("to_delete")).toBeUndefined();
+        expect(await store.lookup("れがしー")).toBeUndefined();
+        expect(await store.getImportStatus(DEFAULT_STARTER_DICTIONARY_ID)).toBeUndefined();
+    });
+});
+
+describe("concurrent schema migration", () => {
+    it("system と user の同時初期化で学習データを保持する", async () => {
+        const name = databaseName("migration-concurrent");
+        await seedLegacyDatabase(name, 2);
+        const system = new IndexedDbJisyoStore({ dbName: name });
+        const user = new IndexedDbUserStore({ dbName: name });
+        openedStores.push(system, user);
+
+        await Promise.all([system.init(), user.init()]);
+
+        expect((await system.lookup("れがしー"))?.getCandidateList()[0]?.word).toBe("旧候補");
+        expect((await user.loadUserEntries()).get("がくしゅう")?.map((candidate) => candidate.word)).toEqual([
+            "第二候補",
+            "第一候補",
+        ]);
+    });
+
+    it("v3 接続による blocked 後も接続解放を待って v4 初期化を完了する", async () => {
+        const name = databaseName("migration-blocked");
+        await seedLegacyDatabase(name, 3);
+        const heldConnection = await new Promise<IDBDatabase>((resolve, reject) => {
+            const request = indexedDB.open(name, 3);
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
         });
+        heldConnection.onversionchange = () => undefined;
 
-        it("clears metadata when clear(dictId) is called", async () => {
-            await store.importEntries([{ key: "k", candidates: [new Candidate("v")] }]);
-            await store.setImportStatus({
-                dictId: "dict1",
-                version: "1.0.0",
-                completed: true,
-                entryCount: 1,
-                timestamp: Date.now(),
-            });
+        const openSpy = vi.spyOn(indexedDB, "open");
+        const store = new IndexedDbJisyoStore({ dbName: name });
+        openedStores.push(store);
+        const initPromise = store.init();
+        const openRequest = openSpy.mock.results[0]?.value;
+        expect(openRequest).toBeDefined();
 
-            await store.clear("dict1");
-            expect(await store.getImportStatus("dict1")).toBeUndefined();
-            expect(await store.count()).toBe(0);
+        let blocked = false;
+        openRequest!.addEventListener("blocked", () => {
+            blocked = true;
         });
+        let settled = false;
+        void initPromise.then(
+            () => { settled = true; },
+            () => { settled = true; },
+        );
+
+        await vi.waitFor(() => expect(blocked).toBe(true));
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        heldConnection.close();
+        await initPromise;
+        expect(store.isOpen).toBe(true);
+        store.close();
+
+        const nextVersionStore = new IndexedDbJisyoStore({ dbName: name, version: 5 });
+        openedStores.push(nextVersionStore);
+        await nextVersionStore.init();
+        expect(nextVersionStore.isOpen).toBe(true);
+        nextVersionStore.close();
+        await expect(IndexedDbJisyoStore.deleteDatabase(name)).resolves.toBeUndefined();
     });
 });
