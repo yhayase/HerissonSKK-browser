@@ -90,7 +90,9 @@ function toStoredRecord(dictId: string, generation: string, entry: JisyoEntry): 
 }
 
 function appendCandidates(target: Candidate[], candidates: readonly StoredCandidate[], source: CandidateSource): void {
-    target.push(...candidates.map((c) => new Candidate(c.word, c.annotation, { okuri: c.okuri, sources: [{ ...source, annotation: c.annotation }] })));
+    for (const c of candidates) {
+        target.push(new Candidate(c.word, c.annotation, { okuri: c.okuri, sources: [{ ...source, annotation: c.annotation }] }));
+    }
 }
 
 export class IndexedDbJisyoStore implements IJisyoStorage {
@@ -319,9 +321,13 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
             });
 
             tx.oncomplete = () => {
-                const candidates: Candidate[] = [];
-                for (const dictId of dictionaryIds) appendCandidates(candidates, records.get(dictId) ?? [], { kind: "system", dictId, name: dictionaryNames.get(dictId) });
-                resolve(candidates.length > 0 ? new Entry(key, mergeCandidates(candidates), "") : undefined);
+                try {
+                    const candidates: Candidate[] = [];
+                    for (const dictId of dictionaryIds) appendCandidates(candidates, records.get(dictId) ?? [], { kind: "system", dictId, name: dictionaryNames.get(dictId) });
+                    resolve(candidates.length > 0 ? new Entry(key, mergeCandidates(candidates), "") : undefined);
+                } catch (error) {
+                    reject(error);
+                }
             };
             tx.onerror = () => reject(tx.error ?? new Error(`Failed to lookup key "${key}" in IndexedDB`));
             tx.onabort = () => reject(tx.error ?? new Error(`Lookup transaction aborted for "${key}"`));
@@ -361,20 +367,24 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
             });
 
             tx.oncomplete = () => {
-                const byKey = new Map<string, { candidates: Candidate[] }>();
-                for (const dictId of dictionaryIds) {
-                    for (const record of records.get(dictId) ?? []) {
-                        let combined = byKey.get(record.key);
-                        if (!combined) {
-                            combined = { candidates: [] };
-                            byKey.set(record.key, combined);
+                try {
+                    const byKey = new Map<string, { candidates: Candidate[] }>();
+                    for (const dictId of dictionaryIds) {
+                        for (const record of records.get(dictId) ?? []) {
+                            let combined = byKey.get(record.key);
+                            if (!combined) {
+                                combined = { candidates: [] };
+                                byKey.set(record.key, combined);
+                            }
+                            appendCandidates(combined.candidates, record.candidates, { kind: "system", dictId, name: dictionaryNames.get(dictId) });
                         }
-                        appendCandidates(combined.candidates, record.candidates, { kind: "system", dictId, name: dictionaryNames.get(dictId) });
                     }
+                    const keys = [...byKey.keys()].sort();
+                    const selected = limit === undefined ? keys : keys.slice(0, limit);
+                    resolve(selected.map((entryKey) => new Entry(entryKey, mergeCandidates(byKey.get(entryKey)!.candidates), "")));
+                } catch (error) {
+                    reject(error);
                 }
-                const keys = [...byKey.keys()].sort();
-                const selected = limit === undefined ? keys : keys.slice(0, limit);
-                resolve(selected.map((entryKey) => new Entry(entryKey, mergeCandidates(byKey.get(entryKey)!.candidates), "")));
             };
             tx.onerror = () => reject(tx.error ?? new Error(`Failed to lookup prefix "${prefix}" in IndexedDB`));
             tx.onabort = () => reject(tx.error ?? new Error(`Prefix lookup transaction aborted for "${prefix}"`));

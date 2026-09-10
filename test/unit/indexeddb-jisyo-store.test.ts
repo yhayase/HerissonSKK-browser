@@ -1,5 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as candidateModule from "../../src/core/skk/jisyo/candidate";
+import { CompositeJisyoProvider } from "../../src/core/skk/jisyo/CompositeJisyoProvider";
 import { Candidate } from "../../src/core/skk/jisyo/candidate";
 import type { JisyoEntry } from "../../src/core/skk/jisyo/JisyoParser";
 import { IndexedDbJisyoStore } from "../../src/storage/jisyo/IndexedDbJisyoStore";
@@ -133,6 +135,58 @@ describe("IndexedDbJisyoStore v4", () => {
             ["幹事", undefined],
         ]);
         expect(await store.count()).toBe(2);
+    });
+
+    it("20万候補の完全一致・前方一致・有効候補を順序と出典を保って返す", async () => {
+        const name = databaseName("large-candidates");
+        const store = new IndexedDbJisyoStore({ dbName: name, dictionaryIds: ["a", "b"] });
+        const user = new IndexedDbUserStore({ dbName: name });
+        openedStores.push(store, user);
+        const count = 200_000;
+        await activate(store, "a", "1", {
+            かな: Array.from({ length: count }, (_, i) => [`候補${i}`, `注釈${i}`]),
+            べつ: [["別候補"]],
+        });
+        await activate(store, "b", "1", { かな: [["候補0", "別注釈"], ["末尾"]] });
+        const expectedWords = Array.from({ length: count }, (_, i) => `候補${i}`).concat("末尾");
+        const sources = [
+            { kind: "system", dictId: "a", annotation: "注釈0" },
+            { kind: "system", dictId: "b", annotation: "別注釈" },
+        ];
+
+        const exact = (await store.lookup("かな"))!.getCandidateList();
+        expect(exact.map((c) => c.word)).toEqual(expectedWords);
+        expect(exact[0]).toMatchObject({ annotation: "注釈0", sources });
+        expect(exact[count - 1]?.annotation).toBe(`注釈${count - 1}`);
+        const prefix = await store.lookupPrefix("か", 1);
+        expect(prefix.map((entry) => entry.getMidashigo())).toEqual(["かな"]);
+        expect(prefix[0]!.getCandidateList().map((c) => c.word)).toEqual(expectedWords);
+        expect(prefix[0]!.getCandidateList()[0]).toMatchObject({ annotation: "注釈0", sources });
+
+        await user.saveCandidate("かな", new Candidate("候補0", "学習注釈"));
+        const provider = new CompositeJisyoProvider(user, [store]);
+        try {
+            const effective = (await provider.lookupCandidates("かな"))!.getCandidateList();
+            expect(effective.map((c) => c.word)).toEqual(expectedWords);
+            expect(effective[0]).toMatchObject({
+                annotation: "学習注釈",
+                sources: [{ kind: "learned", annotation: "学習注釈" }, ...sources],
+            });
+            expect((await provider.lookupCandidates("べつ"))?.getCandidateList()[0]?.word).toBe("別候補");
+        } finally {
+            provider.destroy();
+        }
+    }, 20_000);
+
+    it.each(["lookup", "lookupPrefix"] as const)("%s の完了コールバック内で候補処理が失敗した場合に拒否する", async (method) => {
+        const store = new IndexedDbJisyoStore({ dbName: databaseName("processing-error"), dictionaryIds: ["a"] });
+        openedStores.push(store);
+        await activate(store, "a", "1", { かな: [["仮名"]] });
+        const error = new Error("候補処理の失敗");
+        vi.spyOn(candidateModule, "mergeCandidates").mockImplementationOnce(() => { throw error; });
+
+        await expect(store[method]("かな")).rejects.toBe(error);
+        expect((await store.lookup("かな"))?.getCandidateList()[0]?.word).toBe("仮名");
     });
 
     it("辞書順を反転すると重複語の優先注釈も反転する", async () => {
