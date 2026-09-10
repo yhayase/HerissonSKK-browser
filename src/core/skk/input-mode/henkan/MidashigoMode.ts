@@ -39,7 +39,7 @@ export class MidashigoMode extends AbstractMidashigoMode {
 
     async findCandidates(midashigo: string, okuri: string): Promise<Entry | undefined> {
         const { key, keyForLookup } = this.createJisyoKey(midashigo, okuri);
-        return await this.editor.getJisyoProvider().lookupCandidates(keyForLookup);
+        return (await this.editor.getJisyoProvider().lookupCandidates(keyForLookup))?.forOkuri(this.romajiInput.convertKanaToHiragana(okuri));
     }
 
     private createJisyoKey(midashigo: string, okuri: string): { key: string, keyForLookup: string } {
