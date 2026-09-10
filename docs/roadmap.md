@@ -2,7 +2,7 @@
 
 本書は、ブラウザ向け汎用 SKK 入力拡張機能（Chrome / Firefox 対応、VS Code for Web 完全対応）の開発フェーズ、マイルストーン、および進捗状況を管理するロードマップです。
 
-全体のアーキテクチャおよび技術的課題・方針については [docs/architecture.md](file:///home/hayase/Documents/devel/skk-browser-extension/docs/architecture.md) を参照してください。
+全体のアーキテクチャおよび技術的課題・方針については [アーキテクチャ](./architecture.md) を参照してください。
 
 ---
 
@@ -38,12 +38,20 @@ flowchart TD
 | :--- | :--- | :---: | :--- |
 | **Phase 1** | **汎用入力 & Monaco Editor PoC** | **完了 ✅** | キー横取り、汎用要素・Monaco への文字挿入、キャレット追従 HUD、フルスクリーン対応、ヘッドレス E2E テスト |
 | **Phase 2** | **SKK コアエンジン移植 & ブラウザ適応** | **完了 ✅** | `src/core/` への純粋 TypeScript 移植（ローマ字変換、各入力モード、接頭辞/接尾辞）、DOM 非汚染な `BrowserEditorAdapter`、単体テスト(137件) |
-| **Phase 3** | **辞書ストレージ & 検索エンジン (IndexedDB)・Firefox E2E** | **完了 ✅ (PRレビュー中)** | 標準 SKK 辞書パーサー、大容量辞書の IndexedDB 格納、高速前方一致検索、学習・個人辞書同期、再帰辞書登録、Firefox (Gecko) ヘッドレス E2E 自動検証(全10件パス) |
+| **Phase 3** | **辞書ストレージ & 検索エンジン (IndexedDB)・Firefox E2E** | **完了 ✅** | 標準 SKK 辞書パーサー、大容量辞書の IndexedDB 格納、高速前方一致検索、学習・個人辞書同期、再帰辞書登録、Firefox (Gecko) ヘッドレス E2E 自動検証(全10件パス) |
 | **Phase 3.1** | **JSON 辞書ローダー & IndexedDB データフォーマット検討** | **完了 ✅** | [skk-dict/jisyo](https://github.com/skk-dict/jisyo) JSON 辞書パーサー、単一ストア選定、辞書 ID・generation 付き v4 スキーマ、v1〜v3 移行、Chrome / Firefox 実ブラウザー検証 |
 | **Phase 3.2** | **コア堅牢性検証 & プロパティベースドテスト（ファジング）** | 未着手 ⏳ | Vitest + fast-check によるランダムキー入力シーケンス生成、状態マシンの自己修復性検証、最小反例（Shrink）特定機構整備 |
 | **Phase 4** | **SKK コアエンジンの共通ライブラリ抽出** | 未着手 ⏳ | `src/core/` を独立パッケージ（`@yhayase/skk-core` 等）として切り出し、`skk-vscode` とブラウザ拡張の双方で共通利用 |
 | **Phase 5** | **UI/UX 改善 & 候補選択メニュー** | 未着手 ⏳ | 複数候補一覧メニュー（1〜9 選択、Space 送り、x 戻り）、ビューポート端へのクランプ、ダーク/ライトテーマ追従 |
 | **Phase 6** | **設定画面・ドメイン制御 & ストア公開準備** | 未着手 ⏳ | ポップアップ UI（有効/無効・除外サイト）、オプション画面（キーバインド・辞書管理）、Chrome/Firefox パッケージング |
+
+---
+
+## 現在の到達点と次の作業
+
+Phase 3.1 の実装・検証・PRレビューを完了しました（[PR #1](https://github.com/yhayase/skk-browser-extension/pull/1)）。JSON辞書対応、辞書更新失敗時の既存辞書保持、学習データを保持する移行を確認しています。
+
+次の作業は **Phase 3.2: コアエンジンの堅牢性検証とプロパティベースドテスト** です。`fast-check` による打鍵列生成、状態遷移の不変条件の検証、最小反例の回帰テスト化に進みます。Phase 3.2 は未着手です。
 
 ---
 
