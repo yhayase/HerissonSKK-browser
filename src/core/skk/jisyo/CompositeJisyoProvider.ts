@@ -216,7 +216,9 @@ export class CompositeJisyoProvider implements IJisyoProvider {
             try {
                 const entry = await storage.lookup(key);
                 if (entry) {
-                    systemCands.push(...entry.getCandidateList());
+                    for (const candidate of entry.getCandidateList()) {
+                        systemCands.push(candidate);
+                    }
                 }
             } catch (err) {
                 console.error(`Error querying system storage for "${key}":`, err);
