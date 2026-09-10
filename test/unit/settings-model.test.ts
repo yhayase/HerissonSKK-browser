@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SettingsDraft, variants, validateLocalFile, definitions, publishSettings } from '../../src/settings/model';
+import { SettingsDraft, variants, validateLocalFile, definitions, publishSettings, startupMessage } from '../../src/settings/model';
 import { SYSTEM_DICTIONARY_CATALOG, SYSTEM_OPERATION_ID, type SystemDictionaryStatus } from '../../src/storage/jisyo/SystemDictionaryConfiguration';
 function status(revision = 1): SystemDictionaryStatus {
     return { revision, dictionaries: [
@@ -85,5 +85,36 @@ describe('保存と状態再取得', () => {
         expect(draft.saved).toBe(previous); expect(draft.dirty).toBe(true);
         expect(draft.dictionaries[0]!.kind).toBe('person');
         expect(render).not.toHaveBeenCalled(); expect(refresh).not.toHaveBeenCalled();
+    });
+});
+
+describe('初回の未公開状態', () => {
+    it('リビジョン 0 では編集を許可せず、初回公開を競合扱いしません', () => {
+        const draft = new SettingsDraft();
+        expect(draft.canEdit).toBe(false);
+        draft.receive(status(0));
+        expect(draft.published).toBe(false); expect(draft.canEdit).toBe(false);
+        expect(draft.dictionaries).toEqual([]);
+        draft.move(0, 1);
+        expect(draft.dirty).toBe(false);
+        expect(startupMessage(draft.saved)).toContain('構成はまだ保存されていません');
+        const updating = status(0); updating.operation.state = 'updating'; draft.receive(updating);
+        expect(draft.canEdit).toBe(false);
+        draft.receive(status(1));
+        expect(draft.published).toBe(true); expect(draft.canEdit).toBe(true);
+        expect(draft.dirty).toBe(false); expect(draft.conflict).toBe(false);
+        expect(draft.dictionaries).toEqual(definitions(status(1)));
+        expect(startupMessage(draft.saved)).toBeUndefined();
+    });
+    it('初期化エラーを隠さず、再試行後の公開で編集を許可します', () => {
+        const draft = new SettingsDraft(); const failed = status(0);
+        failed.operation = { dictId: SYSTEM_OPERATION_ID, state: 'error', error: '辞書を読み込めません' };
+        draft.receive(failed); draft.receive(structuredClone(failed));
+        expect(draft.canEdit).toBe(false);
+        expect(startupMessage(draft.saved)).toContain('初期化失敗：辞書を読み込めません');
+        expect(startupMessage(draft.saved)).toContain('再試行');
+        expect(startupMessage(draft.saved)).not.toContain('前の構成');
+        draft.receive(status(1));
+        expect(draft.canEdit).toBe(true); expect(draft.conflict).toBe(false);
     });
 });

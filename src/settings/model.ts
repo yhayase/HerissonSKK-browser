@@ -8,6 +8,8 @@ export class SettingsDraft {
     dictionaries: SystemDictionaryDefinition[] = [];
     baseRevision = 0;
     dirty = false;
+    get published(): boolean { return (this.saved?.revision ?? 0) > 0; }
+    get canEdit(): boolean { return this.published && this.saved?.operation.state !== 'updating'; }
     get conflict(): boolean { return !!this.saved && this.dirty && this.baseRevision !== this.saved.revision; }
     receive(status: SystemDictionaryStatus): boolean {
         if (this.saved && status.revision < this.saved.revision) return false;
@@ -18,11 +20,12 @@ export class SettingsDraft {
     }
     reset(): void {
         if (!this.saved) return;
-        this.dictionaries = definitions(this.saved);
+        this.dictionaries = this.published ? definitions(this.saved) : [];
         this.baseRevision = this.saved.revision;
         this.dirty = false;
     }
     move(index: number, delta: number): void {
+        if (!this.canEdit) return;
         const destination = index + delta;
         if (index < 0 || index >= this.dictionaries.length || destination < 0 || destination >= this.dictionaries.length) return;
         const [item] = this.dictionaries.splice(index, 1);
@@ -57,4 +60,13 @@ export async function publishSettings(
     } catch (refreshError) {
         return { refreshError };
     }
+}
+
+/** リビジョン 0 の既定値は公開済みの構成として表示しません。 */
+export function startupMessage(status?: SystemDictionaryStatus): string | undefined {
+    if (status && status.revision > 0) return undefined;
+    if (status?.operation.state === 'error') {
+        return `初期化失敗：${status.operation.error ?? '不明なエラー'}。まだ構成は保存されていません。設定画面で初期化を再試行してください。`;
+    }
+    return '初期化中です。構成はまだ保存されていません。完了まで辞書の編集はできません。';
 }
