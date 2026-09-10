@@ -1,3 +1,4 @@
+import { SYSTEM_CONFIGURATION_ID, SYSTEM_OPERATION_ID, type SystemDictionaryConfiguration, type SystemDictionaryOperation } from "./SystemDictionaryConfiguration";
 import type { IJisyoStorage } from "../../core/skk/jisyo/IJisyoStorage";
 import type { JisyoEntry } from "../../core/skk/jisyo/JisyoParser";
 import { Candidate } from "../../core/skk/jisyo/candidate";
@@ -6,6 +7,7 @@ import {
     DEFAULT_STARTER_DICTIONARY_ID,
     SKK_DATABASE_VERSION,
     SYSTEM_CATALOG_STORE,
+    SYSTEM_METADATA_STORE,
     SYSTEM_ENTRIES_STORE,
     SYSTEM_LEGACY_STORE,
     type ActiveDictionaryRecord,
@@ -51,6 +53,7 @@ export interface IndexedDbJisyoStoreOptions {
     version?: number;
     indexedDB?: IDBFactory;
     dictionaryIds?: readonly string[];
+    useSystemConfiguration?: boolean;
 }
 
 const importQueues = new WeakMap<IDBFactory, Map<string, Map<string, Promise<void>>>>();
@@ -108,11 +111,13 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
     private readonly usesImplicitDictionaryIds: boolean;
     private dictionaryIds: readonly string[];
     private dictionaryConfigurationLocked = false;
+    private readonly useSystemConfiguration: boolean;
     private db: IDBDatabase | null = null;
     private isClosed = false;
     private initPromise: Promise<void> | null = null;
 
     constructor(options?: IndexedDbJisyoStoreOptions) {
+        this.useSystemConfiguration = options?.useSystemConfiguration ?? false;
         this.dbName = options?.dbName ?? "skk_dictionary";
         this.version = options?.version ?? SKK_DATABASE_VERSION;
         this.idbFactory = options?.indexedDB;
@@ -215,6 +220,78 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
         }
     }
 
+    private readLookupDictionaryIds(tx: IDBTransaction, read: (ids: string[]) => void): void {
+        if (!this.useSystemConfiguration) { read([...this.dictionaryIds]); return; }
+        const request = tx.objectStore(SYSTEM_METADATA_STORE).get(SYSTEM_CONFIGURATION_ID);
+        request.onsuccess = () => {
+            const config = request.result as SystemDictionaryConfiguration | undefined;
+            read(config ? config.dictionaries.filter((d) => d.enabled).map((d) => d.dictId) : [...this.dictionaryIds]);
+        };
+    }
+
+    public async getSystemConfiguration(): Promise<SystemDictionaryConfiguration | undefined> {
+        return this.readSystemMetadata<SystemDictionaryConfiguration>(SYSTEM_CONFIGURATION_ID);
+    }
+
+    public async getSystemOperation(): Promise<SystemDictionaryOperation | undefined> {
+        return this.readSystemMetadata<SystemDictionaryOperation>(SYSTEM_OPERATION_ID);
+    }
+
+    private async readSystemMetadata<T>(id: string): Promise<T | undefined> {
+        const db = await this.ensureInitialized();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(SYSTEM_METADATA_STORE, "readonly");
+            const request = tx.objectStore(SYSTEM_METADATA_STORE).get(id);
+            request.onsuccess = () => resolve(request.result as T | undefined);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    public async setSystemOperation(operation: SystemDictionaryOperation): Promise<void> {
+        const db = await this.ensureInitialized();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(SYSTEM_METADATA_STORE, "readwrite");
+            tx.objectStore(SYSTEM_METADATA_STORE).put(operation);
+            tx.oncomplete = () => resolve();
+            tx.onabort = tx.onerror = () => reject(tx.error ?? new Error("状態の保存に失敗しました。"));
+        });
+    }
+
+    /** 構成と全辞書の公開世代を一つのトランザクションで切り替えます。 */
+    public async publishSystemConfiguration(config: SystemDictionaryConfiguration, expectedRevision: number, garbage: Array<{ dictId: string; generation: string }> = []): Promise<boolean> {
+        const db = await this.ensureInitialized();
+        return new Promise((resolve, reject) => {
+            let published = false;
+            const tx = db.transaction([SYSTEM_METADATA_STORE, SYSTEM_CATALOG_STORE, SYSTEM_ENTRIES_STORE, SYSTEM_LEGACY_STORE], "readwrite");
+            const metadata = tx.objectStore(SYSTEM_METADATA_STORE);
+            const request = metadata.get(SYSTEM_CONFIGURATION_ID);
+            request.onsuccess = () => {
+                if ((request.result?.revision ?? 0) !== expectedRevision) return;
+                for (const definition of config.dictionaries) {
+                    const cached = config.cache.find((c) => c.definition.dictId === definition.dictId
+                        && c.definition.source === definition.source && c.definition.format === definition.format && c.definition.kind === definition.kind);
+                    if (!cached) {
+                        if (definition.enabled) { tx.abort(); return; }
+                        continue;
+                    }
+                    const active = cached.active;
+                    const count = active.storage === "legacy" ? tx.objectStore(SYSTEM_LEGACY_STORE).count()
+                        : tx.objectStore(SYSTEM_ENTRIES_STORE).count(generationRange(active.dictId, active.activeGeneration!));
+                    count.onsuccess = () => {
+                        if (count.result !== active.entryCount) { tx.abort(); return; }
+                        const current = tx.objectStore(SYSTEM_CATALOG_STORE).get(active.dictId);
+                        current.onsuccess = () => tx.objectStore(SYSTEM_CATALOG_STORE).put({ ...active, revision: (current.result?.revision ?? 0) + 1 });
+                    };
+                }
+                metadata.put(config);
+                metadata.put({ dictId: SYSTEM_OPERATION_ID, state: 'idle', generations: garbage } satisfies SystemDictionaryOperation);
+                published = true;
+            };
+            tx.oncomplete = () => resolve(published);
+            tx.onabort = tx.onerror = () => reject(tx.error ?? new Error("辞書構成の公開に失敗しました。"));
+        });
+    }
+
     public async getActiveDictionary(dictId: string): Promise<ActiveDictionaryRecord | undefined> {
         const db = await this.ensureInitialized();
         return new Promise((resolve, reject) => {
@@ -228,28 +305,32 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
     public async lookup(key: string): Promise<Entry | undefined> {
         const db = await this.ensureInitialized();
         return new Promise<Entry | undefined>((resolve, reject) => {
-            const tx = db.transaction([SYSTEM_CATALOG_STORE, SYSTEM_ENTRIES_STORE, SYSTEM_LEGACY_STORE], "readonly");
+            const tx = db.transaction([SYSTEM_METADATA_STORE, SYSTEM_CATALOG_STORE, SYSTEM_ENTRIES_STORE, SYSTEM_LEGACY_STORE], "readonly");
             const records = new Map<string, StoredCandidate[]>();
 
-            for (const dictId of this.dictionaryIds) {
-                const catalogRequest = tx.objectStore(SYSTEM_CATALOG_STORE).get(dictId);
-                catalogRequest.onsuccess = () => {
-                    const catalog = catalogRequest.result as ActiveDictionaryRecord | undefined;
-                    if (!catalog || (catalog.storage === "generation" && !catalog.activeGeneration)) return;
-                    const request = catalog.storage === "legacy"
-                        ? tx.objectStore(SYSTEM_LEGACY_STORE).get(key)
-                        : tx.objectStore(SYSTEM_ENTRIES_STORE).get([dictId, catalog.activeGeneration!, key]);
-                    request.onsuccess = () => {
-                        const record = request.result as StoredJisyoRecord | LegacyStoredJisyoRecord | undefined;
-                        if (record?.candidates?.length) records.set(dictId, record.candidates);
+            let dictionaryIds = [...this.dictionaryIds];
+            this.readLookupDictionaryIds(tx, (ids) => {
+                dictionaryIds = ids;
+                for (const dictId of dictionaryIds) {
+                    const catalogRequest = tx.objectStore(SYSTEM_CATALOG_STORE).get(dictId);
+                    catalogRequest.onsuccess = () => {
+                        const catalog = catalogRequest.result as ActiveDictionaryRecord | undefined;
+                        if (!catalog || (catalog.storage === "generation" && !catalog.activeGeneration)) return;
+                        const request = catalog.storage === "legacy"
+                            ? tx.objectStore(SYSTEM_LEGACY_STORE).get(key)
+                            : tx.objectStore(SYSTEM_ENTRIES_STORE).get([dictId, catalog.activeGeneration!, key]);
+                        request.onsuccess = () => {
+                            const record = request.result as StoredJisyoRecord | LegacyStoredJisyoRecord | undefined;
+                            if (record?.candidates?.length) records.set(dictId, record.candidates);
+                        };
                     };
-                };
-            }
+                }
+            });
 
             tx.oncomplete = () => {
                 const candidates: Candidate[] = [];
                 const seen = new Set<string>();
-                for (const dictId of this.dictionaryIds) appendCandidates(candidates, seen, records.get(dictId) ?? []);
+                for (const dictId of dictionaryIds) appendCandidates(candidates, seen, records.get(dictId) ?? []);
                 resolve(candidates.length > 0 ? new Entry(key, candidates, "") : undefined);
             };
             tx.onerror = () => reject(tx.error ?? new Error(`Failed to lookup key "${key}" in IndexedDB`));
@@ -261,31 +342,35 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
         if (limit !== undefined && limit <= 0) return [];
         const db = await this.ensureInitialized();
         return new Promise<Entry[]>((resolve, reject) => {
-            const tx = db.transaction([SYSTEM_CATALOG_STORE, SYSTEM_ENTRIES_STORE, SYSTEM_LEGACY_STORE], "readonly");
+            const tx = db.transaction([SYSTEM_METADATA_STORE, SYSTEM_CATALOG_STORE, SYSTEM_ENTRIES_STORE, SYSTEM_LEGACY_STORE], "readonly");
             const records = new Map<string, Array<StoredJisyoRecord | LegacyStoredJisyoRecord>>();
 
-            for (const dictId of this.dictionaryIds) {
-                const catalogRequest = tx.objectStore(SYSTEM_CATALOG_STORE).get(dictId);
-                catalogRequest.onsuccess = () => {
-                    const catalog = catalogRequest.result as ActiveDictionaryRecord | undefined;
-                    if (!catalog || (catalog.storage === "generation" && !catalog.activeGeneration)) return;
-                    const request = catalog.storage === "legacy"
-                        ? (limit === undefined
-                            ? tx.objectStore(SYSTEM_LEGACY_STORE).getAll(legacyPrefixRange(prefix))
-                            : tx.objectStore(SYSTEM_LEGACY_STORE).getAll(legacyPrefixRange(prefix), limit))
-                        : (limit === undefined
-                            ? tx.objectStore(SYSTEM_ENTRIES_STORE).getAll(generationPrefixRange(dictId, catalog.activeGeneration!, prefix))
-                            : tx.objectStore(SYSTEM_ENTRIES_STORE).getAll(generationPrefixRange(dictId, catalog.activeGeneration!, prefix), limit));
-                    request.onsuccess = () => {
-                        records.set(dictId, (request.result as Array<StoredJisyoRecord | LegacyStoredJisyoRecord>)
-                            .filter((record) => record.key.startsWith(prefix)));
+            let dictionaryIds = [...this.dictionaryIds];
+            this.readLookupDictionaryIds(tx, (ids) => {
+                dictionaryIds = ids;
+                for (const dictId of dictionaryIds) {
+                    const catalogRequest = tx.objectStore(SYSTEM_CATALOG_STORE).get(dictId);
+                    catalogRequest.onsuccess = () => {
+                        const catalog = catalogRequest.result as ActiveDictionaryRecord | undefined;
+                        if (!catalog || (catalog.storage === "generation" && !catalog.activeGeneration)) return;
+                        const request = catalog.storage === "legacy"
+                            ? (limit === undefined
+                                ? tx.objectStore(SYSTEM_LEGACY_STORE).getAll(legacyPrefixRange(prefix))
+                                : tx.objectStore(SYSTEM_LEGACY_STORE).getAll(legacyPrefixRange(prefix), limit))
+                            : (limit === undefined
+                                ? tx.objectStore(SYSTEM_ENTRIES_STORE).getAll(generationPrefixRange(dictId, catalog.activeGeneration!, prefix))
+                                : tx.objectStore(SYSTEM_ENTRIES_STORE).getAll(generationPrefixRange(dictId, catalog.activeGeneration!, prefix), limit));
+                        request.onsuccess = () => {
+                            records.set(dictId, (request.result as Array<StoredJisyoRecord | LegacyStoredJisyoRecord>)
+                                .filter((record) => record.key.startsWith(prefix)));
+                        };
                     };
-                };
-            }
+                }
+            });
 
             tx.oncomplete = () => {
                 const byKey = new Map<string, { candidates: Candidate[]; seen: Set<string> }>();
-                for (const dictId of this.dictionaryIds) {
+                for (const dictId of dictionaryIds) {
                     for (const record of records.get(dictId) ?? []) {
                         let combined = byKey.get(record.key);
                         if (!combined) {
