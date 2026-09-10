@@ -1,0 +1,14 @@
+:root { font-family: system-ui, sans-serif; color: #1e293b; background: #f3f6fa; line-height: 1.65; color-scheme: light; }
+body { margin: 0; } main { max-width: 1050px; margin: auto; padding: 24px; } h1 { margin-top: 0; } section { background: white; border: 1px solid #cbd5e1; border-radius: 10px; padding: 20px; margin: 20px 0; } h2 { margin-top: 0; font-size: 1.25rem; } fieldset { border: 0; padding: 0; min-width: 0; } legend { font-weight: bold; } li { margin: 12px 0; overflow-wrap: anywhere; } .fields, .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; } label { display: flex; flex-direction: column; gap: 4px; } .row label, label:has(input[type=checkbox]) { flex-direction: row; align-items: center; } input, select, button { font: inherit; max-width: 100%; box-sizing: border-box; } input, select { padding: 6px; } button { padding: 7px 12px; border: 1px solid #64748b; border-radius: 5px; background: #f1f5f9; color: #0f172a; cursor: pointer; margin: 3px; } button:disabled { opacity: .5; cursor: default; } :focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; } #save { background: #1d4ed8; color: white; } #error { color: #a11414; white-space: pre-wrap; } .metadata { font-size: .9rem; white-space: pre-wrap; overflow-wrap: anywhere; } .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; } @media(max-width: 650px) { main { padding: 12px; } section { padding: 12px; } .columns { grid-template-columns: 1fr; } .fields { align-items: stretch; flex-direction: column; } }
+
+*, *::before, *::after { box-sizing: border-box; }
+main, section, .fields, .row, .columns > *, label { min-width: 0; }
+label { max-width: 100%; }
+input, select { min-width: 0; }
+.row label:has(select) { flex: 1 1 280px; flex-direction: column; align-items: stretch; }
+.row select, .fields select, .fields input:not([type=checkbox]) { width: 100%; }
+input[type=checkbox] { flex-shrink: 0; }
+@media(max-width: 650px) {
+    .fields > label, .row label:has(select) { width: 100%; }
+    .fields > button { align-self: flex-start; }
+}

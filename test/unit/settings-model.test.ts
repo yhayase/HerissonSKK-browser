@@ -1,0 +1,89 @@
+import { describe, expect, it, vi } from 'vitest';
+import { SettingsDraft, variants, validateLocalFile, definitions, publishSettings } from '../../src/settings/model';
+import { SYSTEM_DICTIONARY_CATALOG, SYSTEM_OPERATION_ID, type SystemDictionaryStatus } from '../../src/storage/jisyo/SystemDictionaryConfiguration';
+function status(revision = 1): SystemDictionaryStatus {
+    return { revision, dictionaries: [
+        { ...SYSTEM_DICTIONARY_CATALOG[0]!, state: 'ready', version: 'hash' },
+        { ...SYSTEM_DICTIONARY_CATALOG.find((d) => d.kind === 'person')!, enabled: true, state: 'ready' },
+    ], catalog: [...SYSTEM_DICTIONARY_CATALOG], operation: { dictId: SYSTEM_OPERATION_ID, state: 'idle' } };
+}
+describe('設定画面の編集状態', () => {
+    it('ポーリングで未保存の順序と有効状態を置き換えません', () => {
+        const draft = new SettingsDraft(); draft.receive(status()); draft.move(0, 1);
+        draft.dictionaries[0]!.enabled = false;
+        draft.receive(status());
+        expect(draft.dictionaries.map((d) => d.kind)).toEqual(['person', 's']);
+        expect(draft.dictionaries[0]!.enabled).toBe(false);
+        expect(draft.dirty).toBe(true); expect(draft.conflict).toBe(false);
+    });
+    it('別画面の変更は保存構成だけへ反映し、明示的な破棄で編集を更新します', () => {
+        const draft = new SettingsDraft(); draft.receive(status()); draft.move(0, 1);
+        const remote = status(2); remote.dictionaries[0]!.enabled = false; draft.receive(remote);
+        expect(draft.saved).toBe(remote); expect(draft.conflict).toBe(true);
+        expect(draft.dictionaries[0]!.kind).toBe('person');
+        draft.reset(); expect(draft.conflict).toBe(false); expect(draft.dirty).toBe(false);
+        expect(draft.dictionaries[0]!.enabled).toBe(false);
+    });
+    it('古い応答を無視し、同じリビジョンでは表示中の編集対象を維持します', () => {
+        const draft = new SettingsDraft(); draft.receive(status(2)); const row = draft.dictionaries[0];
+        draft.receive(status(2)); expect(draft.dictionaries[0]).toBe(row);
+        expect(draft.receive(status(1))).toBe(false); expect(draft.saved!.revision).toBe(2);
+    });
+    it('未編集なら外部の新しい構成を反映し、基本辞書も順序変更できます', () => {
+        const draft = new SettingsDraft(); draft.receive(status()); const remote = status(2); remote.dictionaries.reverse();
+        draft.receive(remote); expect(draft.dictionaries[0]!.kind).toBe('person');
+        draft.move(1, -1); expect(draft.dictionaries[0]!.kind).toBe('s');
+        draft.move(0, -1); draft.move(1, 1); expect(draft.dictionaries.map((d) => d.kind)).toEqual(['s', 'person']);
+    });
+    it('保存用データに状態メタデータを混入しません', () => {
+        expect(definitions(status())[0]).not.toHaveProperty('state');
+        expect(definitions(status())[0]).not.toHaveProperty('version');
+    });
+});
+describe('形式とファイルの選択', () => {
+    it('形式と種類の両方で公開カタログを絞り込みます', () => {
+        const catalog = [...SYSTEM_DICTIONARY_CATALOG];
+        expect(variants(catalog, 's', 'json')).toHaveLength(2);
+        expect(variants(catalog, 'person', 'text').every((d) => d.kind === 'person' && d.format === 'text')).toBe(true);
+        expect(variants(catalog, 'postal', 'json')).toEqual([]);
+    });
+    it('空ファイルと上限超過を拒否します', () => {
+        expect(() => validateLocalFile(0)).toThrow();
+        expect(() => validateLocalFile(64 * 1024 * 1024 + 1)).toThrow();
+        expect(() => validateLocalFile(64 * 1024 * 1024)).not.toThrow();
+        expect(() => validateLocalFile(1)).not.toThrow();
+    });
+});
+
+describe('保存と状態再取得', () => {
+    it('保存直後の取得が失敗しても、成功応答の構成を表示して保存済みにします', async () => {
+        const draft = new SettingsDraft(); draft.receive(status()); draft.move(0, 1);
+        const published = status(2); published.dictionaries.reverse();
+        const rpc = vi.fn().mockResolvedValueOnce(published).mockRejectedValue(new Error('通信失敗'));
+        const render = vi.fn(() => {
+            expect(draft.saved).toBe(published);
+            expect(draft.dictionaries.map((d) => d.kind)).toEqual(['person', 's']);
+            expect(draft.dirty).toBe(false);
+        });
+        const result = await publishSettings(draft, () => rpc('configure'), render, async () => {
+            expect(render).toHaveBeenCalledOnce();
+            draft.receive(await rpc('status'));
+        });
+        expect(result).toHaveProperty('refreshError');
+        expect(draft.saved!.revision).toBe(2);
+        expect(draft.baseRevision).toBe(2);
+        // 後続のポーリングも失敗した場合、確認済みの構成を維持します。
+        await expect(rpc('status')).rejects.toThrow('通信失敗');
+        expect(draft.saved).toBe(published);
+        expect(draft.dictionaries).toEqual(definitions(published));
+    });
+    it('保存自体が失敗した場合は前の構成と未保存の編集を維持します', async () => {
+        const draft = new SettingsDraft(); const previous = status(); draft.receive(previous); draft.move(0, 1);
+        const rpc = vi.fn().mockRejectedValue(new Error('保存失敗'));
+        const render = vi.fn(); const refresh = vi.fn();
+        await expect(publishSettings(draft, rpc, render, refresh)).rejects.toThrow('保存失敗');
+        expect(draft.saved).toBe(previous); expect(draft.dirty).toBe(true);
+        expect(draft.dictionaries[0]!.kind).toBe('person');
+        expect(render).not.toHaveBeenCalled(); expect(refresh).not.toHaveBeenCalled();
+    });
+});

@@ -6,6 +6,7 @@ export default defineConfig({
     name: 'SKK Browser Extension',
     description: 'SKK Input Method Extension for browsers and VS Code for Web',
     permissions: ['storage'],
+    host_permissions: ['https://raw.githubusercontent.com/*'],
     browser_specific_settings: {
       gecko: {
         id: 'skk-browser-extension@yhayase',
