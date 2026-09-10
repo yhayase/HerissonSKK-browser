@@ -35,6 +35,13 @@ describe('設定画面の編集状態', () => {
         draft.move(1, -1); expect(draft.dictionaries[0]!.kind).toBe('s');
         draft.move(0, -1); draft.move(1, 1); expect(draft.dictionaries.map((d) => d.kind)).toEqual(['s', 'person']);
     });
+    it('基本辞書を含む全辞書を削除でき、空の編集内容も破棄できます', () => {
+        const draft = new SettingsDraft(); draft.receive(status());
+        draft.remove(0); draft.remove(0);
+        expect(draft.dictionaries).toEqual([]); expect(draft.dirty).toBe(true);
+        draft.reset();
+        expect(draft.dictionaries).toEqual(definitions(status())); expect(draft.dirty).toBe(false);
+    });
     it('保存用データに状態メタデータを混入しません', () => {
         expect(definitions(status())[0]).not.toHaveProperty('state');
         expect(definitions(status())[0]).not.toHaveProperty('version');

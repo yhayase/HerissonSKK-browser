@@ -61,6 +61,12 @@ const rpc = (request) => options.evaluate(async (request) => {
   return response.data;
 }, request);
 const status = () => rpc({ type: 'SKK_SYSTEM_STATUS' });
+const assertConfigurationList = async (page = options) => {
+  const configured = (await status()).dictionaries.map((d) => d.dictId);
+  const editable = await page.$$eval('#draft-list > [data-dict-id]', (items) => items.map((item) => item.dataset.dictId));
+  assert.deepEqual(editable, configured);
+  assert.equal(await page.$$eval('#draft-list > [data-dict-id] .metadata', (items) => items.length), configured.length);
+};
 const front = async (page) => flavor === 'firefox' ? page.evaluate(async () => browser.tabs.update((await browser.tabs.getCurrent()).id, { active: true })) : page.bringToFront();
 const click = async (page, selector) => flavor === 'firefox' ? page.$eval(selector, (el) => el.click()) : page.click(selector);
 const fill = async (page, selector, value) => {
@@ -132,7 +138,7 @@ const verifyFirefoxPopup = async (popup) => {
     if (matching.length === 1 && matching[0].status === 'complete' && contexts.length === 1) {
       const response = await browser.connection.send('script.evaluate', {
         target: { context: contexts[0].context }, awaitPromise: true,
-        expression: `JSON.stringify({ url: location.href, title: document.title, readyState: document.readyState, notice: document.querySelector('#notice')?.textContent, disabled: document.querySelector('#draft-controls')?.disabled, rows: [...document.querySelectorAll('#saved-list > [data-dict-id]')].map(el => el.dataset.dictId) })`,
+        expression: `JSON.stringify({ url: location.href, title: document.title, readyState: document.readyState, notice: document.querySelector('#notice')?.textContent, disabled: document.querySelector('#draft-controls')?.disabled, rows: [...document.querySelectorAll('#draft-list > [data-dict-id]')].map(el => el.dataset.dictId) })`,
       });
       diagnostic.response = response;
       if (response.result.type === 'success' && response.result.result.type === 'string') {
@@ -182,7 +188,7 @@ try {
   assert.equal(await startup.evaluate(() => ['draft-controls', 'import-controls', 'save', 'preview'].every((id) => document.getElementById(id).disabled)), true);
   await click(startup, '#save'); assert.equal(await startup.evaluate(() => globalThis.__startupMutations), 0);
   await startup.evaluate(() => { globalThis.__startupReleased = true; }); await click(startup, '#refresh');
-  await startup.waitForFunction(() => !document.querySelector('#draft-controls').disabled && document.querySelector('#saved-list [data-dict-id="skk-jisyo-s"]'));
+  await startup.waitForFunction(() => !document.querySelector('#draft-controls').disabled && document.querySelector('#draft-list [data-dict-id="skk-jisyo-s"]'));
   await startup.close();
   log(`[${flavor}] catalog selectors and bundled format switch`);
   for (const kind of ['s', 'l', 'person', 'place', 'postal']) for (const format of ['text', 'json']) {
@@ -198,6 +204,13 @@ try {
   assert.ok(words(await preview('さいと')).includes('再取込テキスト'));
   const second = await importFile('<img src=x onerror=alert(1)>', jsonFile, 'json');
   await importFile('注釈辞書', fixture('annotations.skk', ';; coding: utf-8\n;; okuri-nasi entries.\nちゅうしゃくけんしょう /重複;別の注釈/\n'), 'text');
+  await assertConfigurationList();
+  assert.equal((await status()).dictionaries.length, 4);
+  await click(options, '#refresh');
+  await options.waitForFunction(() => !document.querySelector('#refresh').disabled);
+  await assertConfigurationList();
+  await options.reload(); await options.waitForFunction(() => !document.querySelector('#draft-controls').disabled);
+  await assertConfigurationList();
   const result = await preview('てすと');
   assert.deepEqual(words(result), ['共通', '第一', '第三', '第四', '第五', '第六', '第七', '第八', '第二']);
   assert.deepEqual(result[0], {
@@ -216,10 +229,10 @@ try {
   assert.ok(!(await preview('かk', 'け')).some((c) => c.word === '描'));
   assert.ok((await preview('かk', '', true)).some((c) => c.word === '描'));
   await click(options, '#preview-all');
-  await click(options, '#draft-list [data-dict-id="skk-jisyo-s"] button:last-child'); await save();
+  await click(options, '#draft-list [data-dict-id="skk-jisyo-s"] [aria-label$="を下へ"]'); await save();
   assert.equal(words(await preview('にほん'))[0], '独自日本');
-  await click(options, '#draft-list [data-dict-id="skk-jisyo-s"] button'); await save();
-  await preview('あくい'); assert.equal(await options.$$eval('#saved-list img, #system-candidates img', (els) => els.length), 0);
+  await click(options, '#draft-list [data-dict-id="skk-jisyo-s"] [aria-label$="を上へ"]'); await save();
+  await preview('あくい'); assert.equal(await options.$$eval('#draft-list img, #system-candidates img', (els) => els.length), 0);
   if (flavor === 'firefox') await options.goto('about:blank');
   await options.setViewport({ width: 360, height: 800 });
   if (flavor === 'firefox') { await navigate(options, extensionRoot + 'options.html'); await options.waitForFunction(() => !document.querySelector('#draft-controls').disabled); await preview('あくい'); }
@@ -233,7 +246,7 @@ try {
   const page = await inputPage(); const other = await inputPage();
   await convert(page); const beforeHud = await hud(page);
   await front(options);
-  await click(options, `#draft-list [data-dict-id="${second}"] button`); await save();
+  await click(options, `#draft-list [data-dict-id="${second}"] [aria-label$="を上へ"]`); await save();
   assert.equal(await hud(page), beforeHud);
   assert.deepEqual((await preview('てすと'))[0], {
     word: '共通',
@@ -370,15 +383,32 @@ try {
   assert.equal(await options.title(), 'SKK 辞書設定');
   if (flavor === 'chrome') await options.screenshot({ path: path.join(output, 'options.png'), fullPage: true });
   else { fs.writeFileSync(path.join(output, 'options.html'), await options.content()); await page.screenshot({ path: path.join(output, 'input.png') }); }
-  const persisted = await status();
+  log(`[${flavor}] every dictionary is removable and an empty configuration persists`);
+  const configuredCount = (await status()).dictionaries.length;
+  for (let index = 0; index < configuredCount; index++) await click(options, '#draft-list [aria-label$="を構成から削除"]');
+  assert.equal(await options.$eval('#configuration-empty', (el) => el.hidden), false);
+  await save();
+  const empty = await status();
+  assert.deepEqual(empty.dictionaries, []);
+  await assertConfigurationList();
+  assert.deepEqual(words(await preview('てすと')), ['候補なし']);
+  assert.equal(await options.$$eval('#effective-candidates > li', (items) => items.some((item) => item.firstChild.textContent === '第二')), true);
   await browser.close(); browser = null;
   await launch(true);
-  assert.equal((await status()).revision, persisted.revision);
-  assert.ok(words(await preview('てすと')).includes('更新候補'));
+  assert.equal((await status()).revision, empty.revision);
+  assert.deepEqual((await status()).dictionaries, []);
+  await assertConfigurationList();
+  assert.equal(await options.$eval('#configuration-empty', (el) => el.hidden), false);
+  assert.deepEqual(words(await preview('てすと')), ['候補なし']);
+  assert.equal(await options.$$eval('#effective-candidates > li', (items) => items.some((item) => item.firstChild.textContent === '第二')), true);
+  await options.select('#kind', 'l'); await options.select('#format', 'json'); await click(options, '#add'); await save();
   assert.ok(words(await preview('てすと')).includes('遠隔再試行'));
+  const restored = await status();
+  assert.equal(restored.dictionaries.length, 1);
+  assert.equal(restored.dictionaries[0].state, 'ready');
   await click(options, '[data-update="skk-jisyo-l"]');
   await options.waitForFunction(() => document.querySelector('#operation').textContent.includes('更新失敗') && !document.querySelector('#draft-controls').disabled);
-  assert.equal((await status()).revision, persisted.revision);
+  assert.equal((await status()).revision, restored.revision);
   const offlineInput = await inputPage(); await convert(offlineInput, 'enkakutesuto'); assert.ok((await hud(offlineInput)).includes('遠隔再試行専用'));
   log(`[${flavor}] PASS system dictionary UI and same-profile offline restart`);
 } catch (error) {

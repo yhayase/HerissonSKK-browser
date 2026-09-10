@@ -8,6 +8,11 @@ input, select { min-width: 0; }
 .row label:has(select) { flex: 1 1 280px; flex-direction: column; align-items: stretch; }
 .row select, .fields select, .fields input:not([type=checkbox]) { width: 100%; }
 input[type=checkbox] { flex-shrink: 0; }
+#draft-list { padding-left: 0; list-style-position: inside; }
+#draft-list > li { padding: 14px; border: 1px solid #cbd5e1; border-radius: 7px; }
+#draft-list > li::marker { font-weight: bold; }
+#draft-list .metadata { margin-bottom: 8px; }
+#configuration-empty { padding: 12px; border: 1px dashed #94a3b8; border-radius: 7px; }
 @media(max-width: 650px) {
     .fields > label, .row label:has(select) { width: 100%; }
     .fields > button { align-self: flex-start; }

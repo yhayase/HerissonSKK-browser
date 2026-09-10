@@ -42,6 +42,24 @@ describe('system dictionary configuration', () => {
         expect(offline).not.toHaveBeenCalled();
     });
 
+    it('空の構成を再起動後も維持し、削除した辞書のキャッシュを再利用します', async () => {
+        const { manager, name } = create();
+        await manager.initialize();
+        const bundled = (await manager.status()).dictionaries[0]!;
+        const empty = await manager.configure([]);
+        expect(empty.dictionaries).toEqual([]);
+        expect(await words(manager)).toBeUndefined();
+
+        const offline = vi.fn(async () => { throw new Error('offline'); });
+        const restarted = create(offline, name).manager;
+        await restarted.initialize();
+        expect((await restarted.status()).dictionaries).toEqual([]);
+        expect(await words(restarted)).toBeUndefined();
+        await restarted.configure([bundled]);
+        expect(await words(restarted)).toEqual(['基本']);
+        expect(offline).not.toHaveBeenCalled();
+    });
+
     it('switches the same dictionary between mixed formats and restores each cached source offline', async () => {
         const { manager, download } = create();
         await manager.initialize();
