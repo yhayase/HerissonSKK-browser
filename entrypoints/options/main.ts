@@ -2,7 +2,7 @@ import './style.css';
 import { sendRuntimeMessage as rpc } from '@/src/storage/rpc/runtimeClient';
 import type { SkkRpcRequest, SystemDictionaryPreview, CandidateData } from '@/src/storage/rpc/messages';
 import type { SystemDictionaryDefinition, SystemDictionaryStatus } from '@/src/storage/jisyo/SystemDictionaryConfiguration';
-import { SettingsDraft, variants, sizeLabel, validateLocalFile, publishSettings } from '@/src/settings/model';
+import { SettingsDraft, variants, sizeLabel, validateLocalFile, publishSettings, startupMessage } from '@/src/settings/model';
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const input = (id: string) => element<HTMLInputElement>(id);
@@ -21,12 +21,15 @@ function button(text: string, action: () => void, disabled = false): HTMLButtonE
     const result = node('button', text); result.type = 'button'; result.disabled = disabled; result.onclick = action; return result;
 }
 function controls(): void {
-    const unavailable = busy || !model.saved || model.saved.operation.state === 'updating';
+    const unavailable = busy || !model.canEdit;
+    element<HTMLButtonElement>('refresh').disabled = busy;
+    element('refresh').textContent = model.published ? '状態を再取得' : '初期化を再試行・状態を再取得';
+    element<HTMLButtonElement>('preview').disabled = previewBusy || !model.published;
     element<HTMLFieldSetElement>('draft-controls').disabled = unavailable;
     element<HTMLFieldSetElement>('import-controls').disabled = unavailable || model.dirty;
     element<HTMLButtonElement>('save').disabled = unavailable || !model.dirty || model.conflict;
     element<HTMLButtonElement>('reset').disabled = unavailable || !model.dirty;
-    element('draft-state').textContent = model.conflict
+    element('draft-state').textContent = !model.published ? startupMessage(model.saved)! : model.conflict
         ? '別の画面で構成が変更されました。編集内容は保持しています。保存するには編集を破棄して最新の構成からやり直してください。'
         : model.dirty ? '未保存の編集です。現在の変換にはまだ反映されていません。' : '現在使用中の構成と同じです。';
     for (const control of document.querySelectorAll<HTMLButtonElement>('[data-update]')) control.disabled = unavailable || model.dirty;
@@ -65,12 +68,12 @@ function drawDraft(): void {
 }
 function drawSaved(): void {
     const status = model.saved!;
-    element('notice').textContent = `保存済み構成：リビジョン ${status.revision}`;
-    element('operation').textContent = status.operation.state === 'updating'
+    element('notice').textContent = startupMessage(status) ?? `保存済み構成：リビジョン ${status.revision}`;
+    element('operation').textContent = startupMessage(status) ?? (status.operation.state === 'updating'
         ? `取得・検証・保存中… ${status.operation.dictionaryId ?? ''}（完了までは現在の構成を使用します）`
-        : status.operation.state === 'error' ? `更新失敗：${status.operation.error ?? '不明なエラー'}。前の構成を使用しています。` : '更新待機中';
+        : status.operation.state === 'error' ? `更新失敗：${status.operation.error ?? '不明なエラー'}。前の構成を使用しています。` : '更新待機中');
     const list = element('saved-list'); list.replaceChildren();
-    for (const d of status.dictionaries) {
+    for (const d of model.published ? status.dictionaries : []) {
         const item = node('li', `${d.name} — ${d.enabled ? '有効' : '無効'} / ${d.format === 'json' ? 'JSON' : 'テキスト'}`); item.dataset.dictId = d.dictId;
         const metadata = node('p', `取得元：${d.source}\n状態：${d.state === 'ready' ? '取得済み・オフライン利用可能' : '未取得'}\nサイズ：${sizeLabel(d.byteSize)}\nバージョン／ハッシュ：${d.version ?? '未取得'}\nインポート日時：${d.importedAt === undefined ? '不明' : new Date(d.importedAt).toLocaleString('ja-JP')}\n取得元の更新日時：${d.sourceDate ?? '不明'}\n見出し数：${d.entryCount?.toLocaleString('ja-JP') ?? '不明'}`);
         metadata.className = 'metadata'; item.append(metadata);
@@ -96,7 +99,7 @@ async function refresh(): Promise<void> {
     if (!previous || JSON.stringify(previous.catalog) !== JSON.stringify(status.catalog)) sourceChoices();
 }
 async function mutate(request: SkkRpcRequest, file?: File): Promise<void> {
-    if (busy || !model.saved || model.saved.operation.state === 'updating') return;
+    if (busy || !model.saved || !model.canEdit) return;
     if (request.type !== 'SKK_SYSTEM_CONFIGURE' && model.dirty) return;
     busy = true; controls(); element('error').textContent = ''; element('notice').textContent = '操作中…';
     try {
@@ -115,7 +118,20 @@ async function mutate(request: SkkRpcRequest, file?: File): Promise<void> {
     } catch (error) { element('error').textContent = errorText(error); await refresh().catch(() => undefined); }
     finally { busy = false; controls(); }
 }
-element('refresh').onclick = () => void refresh().catch((error) => { element('error').textContent = errorText(error); });
+element('refresh').onclick = () => {
+    if (busy) return;
+    busy = true; controls();
+    void (async () => {
+        try {
+            if (!model.published) await rpc({ type: 'SKK_WAIT_READY' });
+            await refresh();
+            element('error').textContent = '';
+        } catch (error) {
+            element('error').textContent = errorText(error);
+            await refresh().catch(() => undefined);
+        } finally { busy = false; controls(); }
+    })();
+};
 element('reset').onclick = () => { model.reset(); drawDraft(); };
 select('kind').onchange = sourceChoices; select('format').onchange = sourceChoices;
 element('add').onclick = () => {
@@ -150,7 +166,7 @@ function candidates(id: string, values: CandidateData[]): void {
 }
 input('preview-all').onchange = () => { input('preview-okuri').disabled = input('preview-all').checked; };
 element<HTMLFormElement>('preview-form').onsubmit = (event) => {
-    event.preventDefault(); if (previewBusy) return;
+    event.preventDefault(); if (previewBusy || !model.published) return;
     previewBusy = true; element<HTMLButtonElement>('preview').disabled = true;
     const key = input('preview-key').value; const okuri = input('preview-all').checked ? undefined : input('preview-okuri').value;
     element('preview-status').textContent = '候補を取得中…';
@@ -158,7 +174,7 @@ element<HTMLFormElement>('preview-form').onsubmit = (event) => {
         candidates('system-candidates', result.systemCandidates); candidates('effective-candidates', result.effectiveCandidates);
         element('preview-status').textContent = `取得時点の候補：${result.key} / ${result.okuri === undefined ? '全条件' : `送り仮名「${result.okuri}」`}`;
     }).catch((error) => { element('preview-status').textContent = `取得失敗：${errorText(error)}（前の結果を保持しています）`; })
-        .finally(() => { previewBusy = false; element<HTMLButtonElement>('preview').disabled = false; });
+        .finally(() => { previewBusy = false; controls(); });
 };
 controls();
 void refresh().catch((error) => { element('notice').textContent = '構成を読み込めませんでした。状態を再取得してください。'; element('error').textContent = errorText(error); });
