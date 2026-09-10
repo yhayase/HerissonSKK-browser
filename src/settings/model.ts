@@ -32,6 +32,11 @@ export class SettingsDraft {
         this.dictionaries.splice(destination, 0, item!);
         this.dirty = true;
     }
+    remove(index: number): void {
+        if (!this.canEdit || index < 0 || index >= this.dictionaries.length) return;
+        this.dictionaries.splice(index, 1);
+        this.dirty = true;
+    }
 }
 export function variants(catalog: SystemDictionaryDefinition[], kind: string, format: string): SystemDictionaryDefinition[] {
     return catalog.filter((d) => d.kind === kind && d.format === format);

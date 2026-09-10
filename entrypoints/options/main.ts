@@ -43,6 +43,7 @@ function sourceChoices(): void {
 }
 function drawDraft(): void {
     const list = element('draft-list'); list.replaceChildren();
+    element('configuration-empty').hidden = model.dictionaries.length > 0;
     model.dictionaries.forEach((d, index) => {
         const item = node('li', ''); item.dataset.dictId = d.dictId;
         const row = node('div', ''); row.className = 'row';
@@ -63,7 +64,20 @@ function drawDraft(): void {
         } else row.append(node('span', `形式：${d.format}（変更は再インポート）`));
         const up = button('上へ', () => { model.move(index, -1); drawDraft(); }, index === 0); up.setAttribute('aria-label', `${d.name}を上へ`);
         const down = button('下へ', () => { model.move(index, 1); drawDraft(); }, index === model.dictionaries.length - 1); down.setAttribute('aria-label', `${d.name}を下へ`);
-        row.append(up, down); item.append(row); list.append(item);
+        const remove = button('構成から削除', () => { model.remove(index); drawDraft(); }); remove.setAttribute('aria-label', `${d.name}を構成から削除`);
+        row.append(up, down, remove); item.append(row);
+
+        const current = model.saved?.dictionaries.find((saved) => saved.dictId === d.dictId
+            && saved.kind === d.kind && saved.format === d.format && saved.source === d.source);
+        const metadata = current
+            ? node('p', `取得元：${current.source}\n状態：${current.state === 'ready' ? '取得済み・オフライン利用可能' : '未取得'}\nサイズ：${sizeLabel(current.byteSize)}\nバージョン／ハッシュ：${current.version ?? '未取得'}\nインポート日時：${current.importedAt === undefined ? '不明' : new Date(current.importedAt).toLocaleString('ja-JP')}\n取得元の更新日時：${current.sourceDate ?? '不明'}\n見出し数：${current.entryCount?.toLocaleString('ja-JP') ?? '不明'}`)
+            : node('p', `取得元：${d.source}\n状態：未保存（保存後に取得状態を確認できます）`);
+        metadata.className = 'metadata'; item.append(metadata);
+        if (current && current.kind !== 'local') {
+            const update = button('この辞書を更新', () => void mutate({ type: 'SKK_SYSTEM_UPDATE', dictId: current.dictId }));
+            update.dataset.update = current.dictId; item.append(update);
+        }
+        list.append(item);
     }); controls();
 }
 function drawSaved(): void {
@@ -72,16 +86,6 @@ function drawSaved(): void {
     element('operation').textContent = startupMessage(status) ?? (status.operation.state === 'updating'
         ? `取得・検証・保存中… ${status.operation.dictionaryId ?? ''}（完了までは現在の構成を使用します）`
         : status.operation.state === 'error' ? `更新失敗：${status.operation.error ?? '不明なエラー'}。前の構成を使用しています。` : '更新待機中');
-    const list = element('saved-list'); list.replaceChildren();
-    for (const d of model.published ? status.dictionaries : []) {
-        const item = node('li', `${d.name} — ${d.enabled ? '有効' : '無効'} / ${d.format === 'json' ? 'JSON' : 'テキスト'}`); item.dataset.dictId = d.dictId;
-        const metadata = node('p', `取得元：${d.source}\n状態：${d.state === 'ready' ? '取得済み・オフライン利用可能' : '未取得'}\nサイズ：${sizeLabel(d.byteSize)}\nバージョン／ハッシュ：${d.version ?? '未取得'}\nインポート日時：${d.importedAt === undefined ? '不明' : new Date(d.importedAt).toLocaleString('ja-JP')}\n取得元の更新日時：${d.sourceDate ?? '不明'}\n見出し数：${d.entryCount?.toLocaleString('ja-JP') ?? '不明'}`);
-        metadata.className = 'metadata'; item.append(metadata);
-        if (d.kind !== 'local') {
-            const update = button('この辞書を更新', () => void mutate({ type: 'SKK_SYSTEM_UPDATE', dictId: d.dictId })); update.dataset.update = d.dictId; item.append(update);
-        }
-        list.append(item);
-    }
     const target = select('import-target'); const previous = target.value; target.replaceChildren(node('option', '新しい辞書')); target.options[0]!.value = '';
     for (const d of status.dictionaries.filter((d) => d.kind === 'local')) { const option = node('option', `${d.name}を再インポート`); option.value = d.dictId; target.append(option); }
     target.value = previous; if (target.selectedIndex < 0) target.value = '';
@@ -94,8 +98,7 @@ async function refresh(): Promise<void> {
     receivedSequence = sequence;
     const previous = model.saved;
     if (!model.receive(status)) return;
-    if (!previous || JSON.stringify(previous) !== JSON.stringify(status)) drawSaved();
-    if (!previous || (!model.dirty && previous.revision !== status.revision)) drawDraft();
+    if (!previous || JSON.stringify(previous) !== JSON.stringify(status)) { drawSaved(); drawDraft(); }
     if (!previous || JSON.stringify(previous.catalog) !== JSON.stringify(status.catalog)) sourceChoices();
 }
 async function mutate(request: SkkRpcRequest, file?: File): Promise<void> {
