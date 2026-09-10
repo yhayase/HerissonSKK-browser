@@ -114,6 +114,42 @@ const transport = async (mode, body = '') => {
     };
   }, { mode, body });
 };
+// Firefox の拡張機能タブは BiDi の作成イベントが欠けるため、実タブと生のコンテキストで確認します。
+const verifyFirefoxPopup = async (popup) => {
+  const inventory = () => popup.evaluate(async () => ({ url: browser.runtime.getURL('options.html'), tabs: await browser.tabs.query({}) }));
+  const before = await inventory();
+  assert.equal(before.tabs.filter((tab) => tab.url === before.url).length, 0, 'options tab exists before popup click');
+  const previousIds = new Set(before.tabs.map((tab) => tab.id));
+  await click(popup, '#open-options');
+  const deadline = Date.now() + 30000;
+  let diagnostic;
+  while (Date.now() < deadline) {
+    const current = await inventory();
+    const matching = current.tabs.filter((tab) => tab.url === before.url && !previousIds.has(tab.id));
+    const tree = await browser.connection.send('browsingContext.getTree', {});
+    const contexts = tree.result.contexts.filter((context) => context.url === before.url);
+    diagnostic = { tabs: matching, contexts };
+    if (matching.length === 1 && matching[0].status === 'complete' && contexts.length === 1) {
+      const response = await browser.connection.send('script.evaluate', {
+        target: { context: contexts[0].context }, awaitPromise: true,
+        expression: `JSON.stringify({ url: location.href, title: document.title, readyState: document.readyState, notice: document.querySelector('#notice')?.textContent, disabled: document.querySelector('#draft-controls')?.disabled, rows: [...document.querySelectorAll('#saved-list > [data-dict-id]')].map(el => el.dataset.dictId) })`,
+      });
+      diagnostic.response = response;
+      if (response.result.type === 'success' && response.result.result.type === 'string') {
+        const dom = JSON.parse(response.result.result.value);
+        if (dom.readyState === 'complete' && dom.disabled === false && dom.rows.includes('skk-jisyo-s')) {
+          assert.equal(dom.url, before.url); assert.equal(dom.title, 'SKK 辞書設定');
+          assert.match(dom.notice, /リビジョン [1-9]/);
+          const proof = { tabId: matching[0].id, context: contexts[0].context, dom };
+          fs.writeFileSync(path.join(output, 'popup-proof.json'), JSON.stringify(proof, null, 2));
+          return proof;
+        }
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.fail(`popup did not create a ready options document: ${JSON.stringify(diagnostic)}`);
+};
 try {
   await launch();
   log(`[${flavor}] revision-zero startup DOM gate`);
@@ -309,19 +345,27 @@ try {
   }
   log(`[${flavor}] popup opens actual options`);
   await options.close(); await secondOptions.close();
-  assert.equal((await Promise.all((await browser.pages()).map((page) => page.evaluate(() => location.href).catch(() => '')))).filter((url) => url === extensionRoot + 'options.html').length, 0);
+  if (flavor === 'chrome') {
+    assert.equal((await Promise.all((await browser.pages()).map((page) => page.evaluate(() => location.href).catch(() => '')))).filter((url) => url === extensionRoot + 'options.html').length, 0);
+  }
   const popup = await browser.newPage(); await navigate(popup, extensionRoot + 'popup.html');
   await popup.waitForFunction(() => document.querySelector('#status').textContent.includes('使用中の構成'));
-  await click(popup, '#open-options');
-  options = null;
-  const popupDeadline = Date.now() + 30000;
-  while (!options && Date.now() < popupDeadline) {
-    for (const candidate of await browser.pages()) {
-      if (await candidate.evaluate(() => location.href).catch(() => '') === extensionRoot + 'options.html') { options = candidate; break; }
+  if (flavor === 'firefox') {
+    await verifyFirefoxPopup(popup);
+    // ポップアップが開いた実 DOM の検証後に、後続の永続化確認用タブを作成します。
+    options = await browser.newPage(); await navigate(options, extensionRoot + 'options.html');
+  } else {
+    await click(popup, '#open-options');
+    options = null;
+    const popupDeadline = Date.now() + 30000;
+    while (!options && Date.now() < popupDeadline) {
+      for (const candidate of await browser.pages()) {
+        if (await candidate.evaluate(() => location.href).catch(() => '') === extensionRoot + 'options.html') { options = candidate; break; }
+      }
+      if (!options) await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    if (!options) await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.ok(options, `popup did not open options: ${await popup.evaluate(() => document.body.innerText).catch(() => 'popup closed')}`);
   }
-  assert.ok(options, `popup did not open options: ${await popup.evaluate(() => document.body.innerText).catch(() => 'popup closed')}`);
   await options.waitForSelector('#draft-list [data-dict-id]');
   assert.equal(await options.title(), 'SKK 辞書設定');
   if (flavor === 'chrome') await options.screenshot({ path: path.join(output, 'options.png'), fullPage: true });
