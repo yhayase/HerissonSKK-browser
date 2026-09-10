@@ -1,27 +1,47 @@
 import { IndexedDbJisyoStore } from '@/src/storage/jisyo/IndexedDbJisyoStore';
 import { IndexedDbUserStore } from '@/src/storage/user-jisyo/IndexedDbUserStore';
-import { DictionaryLoader } from '@/src/storage/jisyo/DictionaryLoader';
+import { DictionaryLoader, type DictionaryDefinition } from '@/src/storage/jisyo/DictionaryLoader';
+import { DEFAULT_STARTER_DICTIONARY_ID } from '@/src/storage/indexedDbSchema';
 import { Candidate } from '@/src/core/skk/jisyo/candidate';
 import type { SkkRpcRequest, CandidateData } from '@/src/storage/rpc/messages';
 import type { IUserJisyoSyncEvent } from '@/src/core/skk/jisyo/CompositeJisyoProvider';
 
+const SYSTEM_DICTIONARIES: readonly DictionaryDefinition[] = [
+  {
+    dictId: DEFAULT_STARTER_DICTIONARY_ID,
+    dictPath: 'dict/SKK-JISYO.S.json',
+    version: 'official-s-729e562f963e',
+    format: 'json',
+  },
+];
+
 export default defineBackground(() => {
   console.log('[SKK Background] Service worker initialized on extension origin:', browser.runtime.id);
 
-  const systemStore = new IndexedDbJisyoStore();
+  const systemStore = new IndexedDbJisyoStore({
+    dictionaryIds: SYSTEM_DICTIONARIES.map((dictionary) => dictionary.dictId),
+  });
   const userStore = new IndexedDbUserStore();
 
   let initPromise: Promise<void> | null = null;
 
   function ensureDictionaryReady(): Promise<void> {
     if (!initPromise) {
-      initPromise = DictionaryLoader.ensureInitialized(systemStore)
-        .then((count) => {
-          console.log(`[SKK Background] System dictionary loaded successfully (${count} entries).`);
+      initPromise = DictionaryLoader.ensureDictionaries(systemStore, SYSTEM_DICTIONARIES)
+        .then((results) => {
+          const count = results.reduce((sum, result) => sum + result.entryCount, 0);
+          console.log(`[SKK Background] System dictionaries ready (${count} entries).`);
         })
-        .catch((err) => {
+        .catch(async (err) => {
           console.error('[SKK Background] Failed to load starter dictionary:', err);
-          initPromise = null; // allow retry on next attempt
+          initPromise = null;
+          const active = await Promise.all(
+            SYSTEM_DICTIONARIES.map((dictionary) => systemStore.getActiveDictionary(dictionary.dictId))
+          );
+          if (active.some((dictionary) => dictionary !== undefined)) {
+            console.warn('[SKK Background] Continuing with the previously active system dictionary.');
+            return;
+          }
           throw err;
         });
     }
