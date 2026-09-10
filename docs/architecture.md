@@ -47,7 +47,8 @@ flowchart TB
             ActiveElem["document.activeElement<br>(標準入力欄 or Monaco 隠し textarea)"]
         end
 
-        subgraph Storage["ブラウザストレージ / Background"]
+        subgraph Storage["Background / ブラウザストレージ"]
+            StorageWorker["Background Service Worker<br>辞書 RPC・初期化"]
             IDB[(IndexedDB<br>SKK 辞書 & 個人学習辞書)]
             SyncConfig[(chrome.storage.sync<br>設定・除外サイト一覧)]
         end
@@ -58,7 +59,8 @@ flowchart TB
     Engine -- "変換中文字列・モード描画" --> FloatUI
     FloatUI -. "要素またはカーソルに追従" .-> Adapter
     Adapter -. "キャレット座標算出" .-> ActiveElem
-    Engine -- "辞書検索" --> IDB
+    Engine -- "辞書 RPC" --> StorageWorker
+    StorageWorker -- "検索・学習・登録" --> IDB
     Engine -- "確定文字列を生成" --> Inserter
     Inserter -- "insertText を発行" --> ActiveElem
 ```
@@ -93,8 +95,10 @@ flowchart TB
 - キャレット直下（または画面右下に固定）に `[かな] ▽みだし` / `[カナ] ▼候補` を表示。
 
 ### 6. 辞書ストレージ（IndexedDB）
-- `SKK-JISYO.L` などの外部辞書ファイルをローカル IndexedDB に保持。
-- Content Script から直接 IndexedDB を読み書きすることで、Manifest V3 の Service Worker スリープ問題に影響されず、高速なローカル辞書引きを実現。
+- 公式 JSON 辞書、標準テキスト辞書、ユーザー辞書をローカル IndexedDB に保持します。
+- IndexedDB の接続、辞書初期化、検索、学習、登録は Background Service Worker に集約します。Content Script は `RemoteJisyoStore` / `RemoteUserStore` の RPC を介して利用し、Web ページの実行コンテキストから辞書データを隔離します。
+- システム辞書は辞書 ID と generation を含む複合キーで保存し、投入完了後に active generation を公開します。更新失敗時は旧 generation を維持し、複数辞書の候補順を構成順で合成します。
+- v1〜v3 の既存データベースは v4 へ移行し、旧システム辞書とユーザー学習を保持します。Service Worker が停止後に再起動した場合も IndexedDB を開き直して処理を継続します。
 
 ---
 

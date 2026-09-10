@@ -2,501 +2,501 @@ import type { IJisyoStorage } from "../../core/skk/jisyo/IJisyoStorage";
 import type { JisyoEntry } from "../../core/skk/jisyo/JisyoParser";
 import { Candidate } from "../../core/skk/jisyo/candidate";
 import { Entry } from "../../core/skk/jisyo/entry";
+import {
+    DEFAULT_STARTER_DICTIONARY_ID,
+    SKK_DATABASE_VERSION,
+    SYSTEM_CATALOG_STORE,
+    SYSTEM_ENTRIES_STORE,
+    SYSTEM_LEGACY_STORE,
+    type ActiveDictionaryRecord,
+    openSkkDatabase,
+} from "../indexedDbSchema";
 
-/**
- * Candidate data representation stored in IndexedDB.
- */
 export interface StoredCandidate {
     word: string;
     annotation?: string;
 }
 
-/**
- * Record structure stored in the IndexedDB object store.
- */
 export interface StoredJisyoRecord {
+    dictId: string;
+    generation: string;
     key: string;
     candidates: StoredCandidate[];
 }
 
-/**
- * Metadata record representing dictionary import completion state.
- */
+interface LegacyStoredJisyoRecord {
+    key: string;
+    candidates: StoredCandidate[];
+}
+
 export interface DictionaryImportStatus {
     dictId: string;
     version: string;
     completed: boolean;
     entryCount: number;
     timestamp: number;
+    activeGeneration?: string;
+    revision?: number;
 }
 
-/**
- * Configuration options for IndexedDbJisyoStore.
- */
+export interface DictionaryGenerationPublication {
+    dictId: string;
+    version: string;
+    activeGeneration: string;
+    entryCount: number;
+}
+
 export interface IndexedDbJisyoStoreOptions {
-    /**
-     * Database name. Defaults to "skk_dictionary".
-     */
     dbName?: string;
-
-    /**
-     * Object store name. Defaults to "system_jisyo".
-     */
-    storeName?: string;
-
-    /**
-     * Database schema version. Defaults to 3.
-     */
     version?: number;
-
-    /**
-     * Custom IDBFactory instance (e.g. fake-indexeddb in tests).
-     * If omitted, falls back to the global `indexedDB`.
-     */
     indexedDB?: IDBFactory;
+    dictionaryIds?: readonly string[];
 }
 
-/**
- * Helper to generate an IDBKeyRange for prefix matches.
- * Uses lexicographical string bounding in UTF-16 code units.
- */
-function createPrefixRange(prefix: string): IDBKeyRange | undefined {
-    if (prefix.length === 0) {
-        return undefined;
+const importQueues = new WeakMap<IDBFactory, Map<string, Map<string, Promise<void>>>>();
+
+function generationRange(dictId: string, generation: string): IDBKeyRange {
+    return IDBKeyRange.bound([dictId, generation], [dictId, generation, []], false, true);
+}
+
+function generationPrefixRange(dictId: string, generation: string, prefix: string): IDBKeyRange {
+    if (prefix.length === 0) return generationRange(dictId, generation);
+    const lastCode = prefix.charCodeAt(prefix.length - 1);
+    if (lastCode < 0xffff) {
+        const upper = prefix.slice(0, -1) + String.fromCharCode(lastCode + 1);
+        return IDBKeyRange.bound([dictId, generation, prefix], [dictId, generation, upper], false, true);
     }
-    const lastCharCode = prefix.charCodeAt(prefix.length - 1);
-    if (lastCharCode < 0xffff) {
-        const upper = prefix.slice(0, -1) + String.fromCharCode(lastCharCode + 1);
+    return IDBKeyRange.bound([dictId, generation, prefix], [dictId, generation, []], false, true);
+}
+
+function legacyPrefixRange(prefix: string): IDBKeyRange | undefined {
+    if (prefix.length === 0) return undefined;
+    const lastCode = prefix.charCodeAt(prefix.length - 1);
+    if (lastCode < 0xffff) {
+        const upper = prefix.slice(0, -1) + String.fromCharCode(lastCode + 1);
         return IDBKeyRange.bound(prefix, upper, false, true);
     }
-    return IDBKeyRange.lowerBound(prefix, false);
+    return IDBKeyRange.lowerBound(prefix);
 }
 
-/**
- * Normalizes an entry from either JisyoEntry or a [key, candidates] tuple into a StoredJisyoRecord.
- */
-function toStoredRecord(item: JisyoEntry | [string, Candidate[] | StoredCandidate[]]): StoredJisyoRecord | undefined {
-    let key: string;
-    let candidates: (Candidate | StoredCandidate)[];
-
-    if (Array.isArray(item)) {
-        key = item[0];
-        candidates = item[1];
-    } else {
-        key = item.key;
-        candidates = item.candidates;
-    }
-
-    if (!key || candidates.length === 0) {
-        return undefined;
-    }
-
+function toStoredRecord(dictId: string, generation: string, entry: JisyoEntry): StoredJisyoRecord | undefined {
+    if (entry.candidates.length === 0) return undefined;
     return {
-        key,
-        candidates: candidates.map((c) => ({
-            word: c.word,
-            ...(c.annotation ? { annotation: c.annotation } : {}),
+        dictId,
+        generation,
+        key: entry.key,
+        candidates: entry.candidates.map((candidate) => ({
+            word: candidate.word,
+            ...(candidate.annotation ? { annotation: candidate.annotation } : {}),
         })),
     };
 }
 
-/**
- * High-performance IndexedDB-backed dictionary storage implementing IJisyoStorage.
- * Designed for system dictionaries (such as SKK-JISYO.L) with fast exact match and prefix lookup.
- */
+function appendCandidates(target: Candidate[], seen: Set<string>, candidates: readonly StoredCandidate[]): void {
+    for (const candidate of candidates) {
+        if (!seen.has(candidate.word)) {
+            seen.add(candidate.word);
+            target.push(new Candidate(candidate.word, candidate.annotation));
+        }
+    }
+}
+
 export class IndexedDbJisyoStore implements IJisyoStorage {
     private readonly dbName: string;
-    private readonly storeName: string;
     private readonly version: number;
     private readonly idbFactory?: IDBFactory;
-
+    private readonly usesImplicitDictionaryIds: boolean;
+    private dictionaryIds: readonly string[];
+    private dictionaryConfigurationLocked = false;
     private db: IDBDatabase | null = null;
     private isClosed = false;
     private initPromise: Promise<void> | null = null;
 
     constructor(options?: IndexedDbJisyoStoreOptions) {
         this.dbName = options?.dbName ?? "skk_dictionary";
-        this.storeName = options?.storeName ?? "system_jisyo";
-        this.version = options?.version ?? 3;
+        this.version = options?.version ?? SKK_DATABASE_VERSION;
         this.idbFactory = options?.indexedDB;
+        this.usesImplicitDictionaryIds = options?.dictionaryIds === undefined;
+        this.dictionaryIds = [...(options?.dictionaryIds ?? [DEFAULT_STARTER_DICTIONARY_ID])];
+        if (new Set(this.dictionaryIds).size !== this.dictionaryIds.length) {
+            throw new Error("dictionaryIds must not contain duplicates");
+        }
     }
 
-    /**
-     * Whether the database connection is currently active and open.
-     */
     public get isOpen(): boolean {
         return this.db !== null && !this.isClosed;
     }
 
-    /**
-     * Initializes the IndexedDB database connection and creates the object store if needed.
-     * Concurrently dispatched calls share the same initialization promise.
-     */
-    public async init(): Promise<void> {
-        if (this.db && !this.isClosed) {
+    public get configuredDictionaryIds(): readonly string[] {
+        return this.dictionaryIds;
+    }
+
+    /** 既存の単一辞書ローダーが、初回処理前に限って暗黙の辞書 ID を置き換えるために使用します。 */
+    public configureSingleDictionaryForCompatibility(dictId: string): void {
+        if (!dictId) throw new Error("dictId must not be empty");
+        if (this.dictionaryIds.length === 1 && this.dictionaryIds[0] === dictId) {
+            this.dictionaryConfigurationLocked = true;
             return;
         }
-        if (this.initPromise) {
-            return this.initPromise;
+        if (!this.usesImplicitDictionaryIds
+            || this.dictionaryConfigurationLocked
+            || this.db
+            || this.initPromise
+            || this.isClosed) {
+            throw new Error("Custom dictId requires a new store without explicit dictionaryIds");
         }
+        this.dictionaryIds = [dictId];
+        this.dictionaryConfigurationLocked = true;
+    }
+
+    private getFactory(): IDBFactory {
+        const factory = this.idbFactory ?? (typeof indexedDB !== "undefined" ? indexedDB : undefined);
+        if (!factory) throw new Error("IndexedDB is not supported in this environment");
+        return factory;
+    }
+
+    public async init(): Promise<void> {
+        this.dictionaryConfigurationLocked = true;
+        if (this.db && !this.isClosed) return;
+        if (this.initPromise) return this.initPromise;
         this.isClosed = false;
-
-        this.initPromise = (async () => {
-            const factory = this.idbFactory ?? (typeof indexedDB !== "undefined" ? indexedDB : undefined);
-            if (!factory) {
-                throw new Error("IndexedDB is not supported in this environment");
-            }
-
-            await new Promise<void>((resolve, reject) => {
-                const request = factory.open(this.dbName, this.version);
-
-                request.onblocked = () => {
-                    reject(new Error(`IndexedDB database "${this.dbName}" is blocked by another connection`));
-                };
-
-                request.onerror = () => {
-                    reject(request.error ?? new Error(`Failed to open IndexedDB database "${this.dbName}"`));
-                };
-
-                request.onupgradeneeded = () => {
-                    const db = request.result;
-                    if (!db.objectStoreNames.contains("system_jisyo")) {
-                        db.createObjectStore("system_jisyo", { keyPath: "key" });
-                    }
-                    if (!db.objectStoreNames.contains("user_jisyo")) {
-                        db.createObjectStore("user_jisyo", { keyPath: "key" });
-                    }
-                    if (!db.objectStoreNames.contains("system_metadata")) {
-                        db.createObjectStore("system_metadata", { keyPath: "dictId" });
-                    }
-                    if (!db.objectStoreNames.contains(this.storeName)) {
-                        db.createObjectStore(this.storeName, { keyPath: "key" });
-                    }
-                };
-
-                request.onsuccess = () => {
-                    this.db = request.result;
-
-                    this.db.onversionchange = () => {
-                        this.close();
-                    };
-
-                    resolve();
-                };
+        this.initPromise = openSkkDatabase(this.getFactory(), this.dbName, this.version)
+            .then((db) => {
+                this.db = db;
+                db.onversionchange = () => this.close();
+            })
+            .finally(() => {
+                this.initPromise = null;
             });
-        })().finally(() => {
-            this.initPromise = null;
-        });
-
         return this.initPromise;
     }
 
-    /**
-     * Ensures that the database connection is initialized.
-     */
     private async ensureInitialized(): Promise<IDBDatabase> {
-        if (this.isClosed) {
-            throw new Error("IndexedDbJisyoStore is closed");
-        }
-        if (!this.db) {
-            await this.init();
-        }
-        if (!this.db) {
-            throw new Error("Failed to initialize IndexedDB database connection");
-        }
+        if (this.isClosed) throw new Error("IndexedDbJisyoStore is closed");
+        if (!this.db) await this.init();
+        if (!this.db) throw new Error("Failed to initialize IndexedDB database connection");
         return this.db;
     }
 
-    /**
-     * Looks up candidates for an exact dictionary key (midashigo).
-     *
-     * @param key The dictionary key to look up (e.g. "とうきょう", "いk", "だい>")
-     * @returns An Entry object if found, or undefined if not found
-     */
-    public async lookup(key: string): Promise<Entry | undefined> {
-        const db = await this.ensureInitialized();
-
-        return new Promise<Entry | undefined>((resolve, reject) => {
-            const tx = db.transaction(this.storeName, "readonly");
-            const store = tx.objectStore(this.storeName);
-            const req = store.get(key);
-
-            req.onsuccess = () => {
-                const record = req.result as StoredJisyoRecord | undefined;
-                if (!record || !record.candidates || record.candidates.length === 0) {
-                    resolve(undefined);
-                    return;
-                }
-                const candidates = record.candidates.map((c) => new Candidate(c.word, c.annotation));
-                resolve(new Entry(key, candidates, ""));
-            };
-
-            req.onerror = () => {
-                reject(req.error ?? new Error(`Failed to lookup key "${key}" in IndexedDB`));
-            };
-        });
-    }
-
-    /**
-     * Looks up entries starting with the specified prefix (for completion or incremental search).
-     *
-     * @param prefix The key prefix to search
-     * @param limit Maximum number of entries to return (optional)
-     * @returns Array of matching Entry objects
-     */
-    public async lookupPrefix(prefix: string, limit?: number): Promise<Entry[]> {
-        if (limit !== undefined && limit <= 0) {
-            return [];
+    /** 同じDB・辞書IDのインポートをストアインスタンス間で直列化します。 */
+    public async runImportExclusive<T>(dictId: string, action: () => Promise<T>): Promise<T> {
+        this.dictionaryConfigurationLocked = true;
+        const factory = this.getFactory();
+        let databases = importQueues.get(factory);
+        if (!databases) {
+            databases = new Map();
+            importQueues.set(factory, databases);
+        }
+        let dictionaries = databases.get(this.dbName);
+        if (!dictionaries) {
+            dictionaries = new Map();
+            databases.set(this.dbName, dictionaries);
         }
 
+        const previous = dictionaries.get(dictId) ?? Promise.resolve();
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const tail = previous.catch(() => undefined).then(() => gate);
+        dictionaries.set(dictId, tail);
+
+        await previous.catch(() => undefined);
+        try {
+            return await action();
+        } finally {
+            release();
+            if (dictionaries.get(dictId) === tail) {
+                void tail.finally(() => {
+                    if (dictionaries?.get(dictId) === tail) dictionaries.delete(dictId);
+                    if (dictionaries?.size === 0) databases?.delete(this.dbName);
+                });
+            }
+        }
+    }
+
+    public async getActiveDictionary(dictId: string): Promise<ActiveDictionaryRecord | undefined> {
         const db = await this.ensureInitialized();
-
-        return new Promise<Entry[]>((resolve, reject) => {
-            const tx = db.transaction(this.storeName, "readonly");
-            const store = tx.objectStore(this.storeName);
-            const range = createPrefixRange(prefix);
-
-            const req = limit !== undefined ? store.getAll(range, limit) : store.getAll(range);
-
-            req.onsuccess = () => {
-                const records = req.result as StoredJisyoRecord[];
-                const results: Entry[] = [];
-                for (const record of records) {
-                    if (record.key.startsWith(prefix) && record.candidates && record.candidates.length > 0) {
-                        const candidates = record.candidates.map((c) => new Candidate(c.word, c.annotation));
-                        results.push(new Entry(record.key, candidates, ""));
-                    }
-                }
-                resolve(results);
-            };
-
-            req.onerror = () => {
-                reject(req.error ?? new Error(`Failed to lookup prefix "${prefix}" in IndexedDB`));
-            };
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(SYSTEM_CATALOG_STORE, "readonly");
+            const request = tx.objectStore(SYSTEM_CATALOG_STORE).get(dictId);
+            request.onsuccess = () => resolve(request.result as ActiveDictionaryRecord | undefined);
+            request.onerror = () => reject(request.error ?? new Error(`Failed to read catalog for "${dictId}"`));
         });
     }
 
-    /**
-     * Batch imports dictionary entries into IndexedDB using chunked transactions.
-     *
-     * @param entries An iterable of JisyoEntry or a Map of key to Candidate[]
-     * @param batchSize Number of records per transaction chunk (default: 2000)
-     * @param progressCallback Optional progress notification callback invoked after each committed chunk
-     * @returns Total number of records successfully imported
-     */
-    public async importEntries(
-        entries: Iterable<JisyoEntry> | Map<string, Candidate[]>,
-        batchSize: number = 2000,
-        progressCallback?: (count: number) => void
-    ): Promise<number> {
+    public async lookup(key: string): Promise<Entry | undefined> {
         const db = await this.ensureInitialized();
-        let totalImported = 0;
-        let currentBatch: StoredJisyoRecord[] = [];
+        return new Promise<Entry | undefined>((resolve, reject) => {
+            const tx = db.transaction([SYSTEM_CATALOG_STORE, SYSTEM_ENTRIES_STORE, SYSTEM_LEGACY_STORE], "readonly");
+            const records = new Map<string, StoredCandidate[]>();
 
-        const commitBatch = async (batch: StoredJisyoRecord[]): Promise<void> => {
-            if (batch.length === 0) return;
-            await new Promise<void>((resolve, reject) => {
-                const tx = db.transaction(this.storeName, "readwrite");
-                const store = tx.objectStore(this.storeName);
+            for (const dictId of this.dictionaryIds) {
+                const catalogRequest = tx.objectStore(SYSTEM_CATALOG_STORE).get(dictId);
+                catalogRequest.onsuccess = () => {
+                    const catalog = catalogRequest.result as ActiveDictionaryRecord | undefined;
+                    if (!catalog || (catalog.storage === "generation" && !catalog.activeGeneration)) return;
+                    const request = catalog.storage === "legacy"
+                        ? tx.objectStore(SYSTEM_LEGACY_STORE).get(key)
+                        : tx.objectStore(SYSTEM_ENTRIES_STORE).get([dictId, catalog.activeGeneration!, key]);
+                    request.onsuccess = () => {
+                        const record = request.result as StoredJisyoRecord | LegacyStoredJisyoRecord | undefined;
+                        if (record?.candidates?.length) records.set(dictId, record.candidates);
+                    };
+                };
+            }
 
-                for (const record of batch) {
-                    store.put(record);
+            tx.oncomplete = () => {
+                const candidates: Candidate[] = [];
+                const seen = new Set<string>();
+                for (const dictId of this.dictionaryIds) appendCandidates(candidates, seen, records.get(dictId) ?? []);
+                resolve(candidates.length > 0 ? new Entry(key, candidates, "") : undefined);
+            };
+            tx.onerror = () => reject(tx.error ?? new Error(`Failed to lookup key "${key}" in IndexedDB`));
+            tx.onabort = () => reject(tx.error ?? new Error(`Lookup transaction aborted for "${key}"`));
+        });
+    }
+
+    public async lookupPrefix(prefix: string, limit?: number): Promise<Entry[]> {
+        if (limit !== undefined && limit <= 0) return [];
+        const db = await this.ensureInitialized();
+        return new Promise<Entry[]>((resolve, reject) => {
+            const tx = db.transaction([SYSTEM_CATALOG_STORE, SYSTEM_ENTRIES_STORE, SYSTEM_LEGACY_STORE], "readonly");
+            const records = new Map<string, Array<StoredJisyoRecord | LegacyStoredJisyoRecord>>();
+
+            for (const dictId of this.dictionaryIds) {
+                const catalogRequest = tx.objectStore(SYSTEM_CATALOG_STORE).get(dictId);
+                catalogRequest.onsuccess = () => {
+                    const catalog = catalogRequest.result as ActiveDictionaryRecord | undefined;
+                    if (!catalog || (catalog.storage === "generation" && !catalog.activeGeneration)) return;
+                    const request = catalog.storage === "legacy"
+                        ? (limit === undefined
+                            ? tx.objectStore(SYSTEM_LEGACY_STORE).getAll(legacyPrefixRange(prefix))
+                            : tx.objectStore(SYSTEM_LEGACY_STORE).getAll(legacyPrefixRange(prefix), limit))
+                        : (limit === undefined
+                            ? tx.objectStore(SYSTEM_ENTRIES_STORE).getAll(generationPrefixRange(dictId, catalog.activeGeneration!, prefix))
+                            : tx.objectStore(SYSTEM_ENTRIES_STORE).getAll(generationPrefixRange(dictId, catalog.activeGeneration!, prefix), limit));
+                    request.onsuccess = () => {
+                        records.set(dictId, (request.result as Array<StoredJisyoRecord | LegacyStoredJisyoRecord>)
+                            .filter((record) => record.key.startsWith(prefix)));
+                    };
+                };
+            }
+
+            tx.oncomplete = () => {
+                const byKey = new Map<string, { candidates: Candidate[]; seen: Set<string> }>();
+                for (const dictId of this.dictionaryIds) {
+                    for (const record of records.get(dictId) ?? []) {
+                        let combined = byKey.get(record.key);
+                        if (!combined) {
+                            combined = { candidates: [], seen: new Set() };
+                            byKey.set(record.key, combined);
+                        }
+                        appendCandidates(combined.candidates, combined.seen, record.candidates);
+                    }
                 }
+                const keys = [...byKey.keys()].sort();
+                const selected = limit === undefined ? keys : keys.slice(0, limit);
+                resolve(selected.map((entryKey) => new Entry(entryKey, byKey.get(entryKey)!.candidates, "")));
+            };
+            tx.onerror = () => reject(tx.error ?? new Error(`Failed to lookup prefix "${prefix}" in IndexedDB`));
+            tx.onabort = () => reject(tx.error ?? new Error(`Prefix lookup transaction aborted for "${prefix}"`));
+        });
+    }
 
+    public async stageGeneration(
+        dictId: string,
+        generation: string,
+        entries: Iterable<JisyoEntry>,
+        batchSize = 2000,
+        progressCallback?: (count: number) => void,
+    ): Promise<number> {
+        if (!Number.isInteger(batchSize) || batchSize <= 0) throw new Error("batchSize must be a positive integer");
+        const db = await this.ensureInitialized();
+        let imported = 0;
+        let batch: StoredJisyoRecord[] = [];
+
+        const commit = async (): Promise<void> => {
+            if (batch.length === 0) return;
+            const current = batch;
+            batch = [];
+            await new Promise<void>((resolve, reject) => {
+                const tx = db.transaction(SYSTEM_ENTRIES_STORE, "readwrite");
+                const store = tx.objectStore(SYSTEM_ENTRIES_STORE);
+                for (const record of current) store.put(record);
                 tx.oncomplete = () => resolve();
                 tx.onerror = () => reject(tx.error ?? new Error("IndexedDB transaction error during import"));
                 tx.onabort = () => reject(tx.error ?? new Error("IndexedDB transaction aborted during import"));
             });
-            totalImported += batch.length;
-            progressCallback?.(totalImported);
+            imported += current.length;
+            progressCallback?.(imported);
         };
 
-        const iterable = entries instanceof Map ? entries.entries() : entries;
-        for (const item of iterable) {
-            const record = toStoredRecord(item as JisyoEntry | [string, Candidate[]]);
-            if (!record) {
-                continue;
-            }
-            currentBatch.push(record);
-            if (currentBatch.length >= batchSize) {
-                await commitBatch(currentBatch);
-                currentBatch = [];
-            }
+        for (const entry of entries) {
+            const record = toStoredRecord(dictId, generation, entry);
+            if (!record) continue;
+            batch.push(record);
+            if (batch.length >= batchSize) await commit();
         }
-
-        if (currentBatch.length > 0) {
-            await commitBatch(currentBatch);
-        }
-
-        return totalImported;
+        await commit();
+        return imported;
     }
 
-    /**
-     * Records or updates the import status for a dictionary.
-     *
-     * @param status Dictionary import status metadata
-     */
-    public async setImportStatus(status: DictionaryImportStatus): Promise<void> {
-        if (this.isClosed) {
-            throw new Error("IndexedDbJisyoStore is closed");
-        }
+    public async publishGeneration(
+        record: DictionaryGenerationPublication,
+        expectedRevision: number,
+    ): Promise<boolean> {
         const db = await this.ensureInitialized();
-
-        return new Promise<void>((resolve, reject) => {
-            const tx = db.transaction("system_metadata", "readwrite");
-            const store = tx.objectStore("system_metadata");
-            const req = store.put(status);
-
-            req.onerror = () => {
-                reject(req.error ?? new Error(`Failed to set import status for "${status.dictId}"`));
+        return new Promise<boolean>((resolve, reject) => {
+            let published = false;
+            const tx = db.transaction([SYSTEM_CATALOG_STORE, SYSTEM_ENTRIES_STORE], "readwrite");
+            const catalogStore = tx.objectStore(SYSTEM_CATALOG_STORE);
+            const currentRequest = catalogStore.get(record.dictId);
+            currentRequest.onsuccess = () => {
+                const current = currentRequest.result as ActiveDictionaryRecord | undefined;
+                if ((current?.revision ?? 0) !== expectedRevision) return;
+                const countRequest = tx.objectStore(SYSTEM_ENTRIES_STORE)
+                    .count(generationRange(record.dictId, record.activeGeneration!));
+                countRequest.onsuccess = () => {
+                    if (countRequest.result !== record.entryCount) {
+                        tx.abort();
+                        return;
+                    }
+                    catalogStore.put({
+                        ...record,
+                        revision: expectedRevision + 1,
+                        storage: "generation",
+                        timestamp: Date.now(),
+                    } satisfies ActiveDictionaryRecord);
+                    published = true;
+                };
             };
-
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => reject(tx.error ?? new Error("Transaction error setting import status"));
-            tx.onabort = () => reject(tx.error ?? new Error("Transaction aborted setting import status"));
+            tx.oncomplete = () => resolve(published);
+            tx.onerror = () => reject(tx.error ?? new Error(`Failed to publish dictionary "${record.dictId}"`));
+            tx.onabort = () => reject(tx.error ?? new Error(`Dictionary publication aborted for "${record.dictId}"`));
         });
     }
 
-    /**
-     * Retrieves the import status record for a given dictionary identifier.
-     *
-     * @param dictId The dictionary identifier (e.g. "dict/SKK-JISYO.S")
-     * @returns DictionaryImportStatus if found, or undefined
-     */
+    public async deleteGeneration(dictId: string, generation: string): Promise<void> {
+        const db = await this.ensureInitialized();
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(SYSTEM_ENTRIES_STORE, "readwrite");
+            tx.objectStore(SYSTEM_ENTRIES_STORE).delete(generationRange(dictId, generation));
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error ?? new Error(`Failed to delete generation "${generation}"`));
+            tx.onabort = () => reject(tx.error ?? new Error(`Generation cleanup aborted for "${generation}"`));
+        });
+    }
+
+    /** 同一辞書の排他ロック内でのみ呼び出し、停止済みインポートの世代を回収します。 */
+    public async cleanupAbandonedGenerations(
+        dictId: string,
+        activeGeneration?: string,
+        protectedGenerationPrefix?: string,
+    ): Promise<void> {
+        const db = await this.ensureInitialized();
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(SYSTEM_ENTRIES_STORE, "readwrite");
+            const request = tx.objectStore(SYSTEM_ENTRIES_STORE)
+                .openCursor(IDBKeyRange.bound([dictId], [dictId, []], false, true));
+            request.onsuccess = () => {
+                const cursor = request.result;
+                if (!cursor) return;
+                const value = cursor.value as StoredJisyoRecord;
+                if (value.generation !== activeGeneration
+                    && (!protectedGenerationPrefix || !value.generation.startsWith(protectedGenerationPrefix))) {
+                    cursor.delete();
+                }
+                cursor.continue();
+            };
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error ?? new Error(`Failed to recover abandoned imports for "${dictId}"`));
+            tx.onabort = () => reject(tx.error ?? new Error(`Abandoned import recovery aborted for "${dictId}"`));
+        });
+    }
+
     public async getImportStatus(dictId: string): Promise<DictionaryImportStatus | undefined> {
-        if (this.isClosed) {
-            throw new Error("IndexedDbJisyoStore is closed");
-        }
-        const db = await this.ensureInitialized();
-
-        return new Promise<DictionaryImportStatus | undefined>((resolve, reject) => {
-            const tx = db.transaction("system_metadata", "readonly");
-            const store = tx.objectStore("system_metadata");
-            const req = store.get(dictId);
-
-            req.onsuccess = () => {
-                resolve(req.result as DictionaryImportStatus | undefined);
-            };
-
-            req.onerror = () => {
-                reject(req.error ?? new Error(`Failed to get import status for "${dictId}"`));
-            };
-        });
+        const active = await this.getActiveDictionary(dictId);
+        if (!active) return undefined;
+        return {
+            dictId,
+            version: active.version,
+            completed: true,
+            entryCount: active.entryCount,
+            timestamp: active.timestamp,
+            activeGeneration: active.activeGeneration,
+            revision: active.revision,
+        };
     }
 
-    /**
-     * Deletes the import status record for a given dictionary identifier.
-     *
-     * @param dictId The dictionary identifier
-     */
-    public async deleteImportStatus(dictId: string): Promise<void> {
-        if (this.isClosed) {
-            throw new Error("IndexedDbJisyoStore is closed");
-        }
-        const db = await this.ensureInitialized();
-
-        return new Promise<void>((resolve, reject) => {
-            const tx = db.transaction("system_metadata", "readwrite");
-            const store = tx.objectStore("system_metadata");
-            store.delete(dictId);
-
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => reject(tx.error ?? new Error(`Failed to delete import status for "${dictId}"`));
-            tx.onabort = () => reject(tx.error ?? new Error("Transaction aborted deleting import status"));
-        });
-    }
-
-    /**
-     * Checks if the dictionary import was completed for the specified dictId and version.
-     * Also verifies that the store contains records.
-     *
-     * @param dictId Dictionary identifier
-     * @param version Optional version string to match
-     * @returns True if import is completed and valid
-     */
     public async isImportCompleted(dictId: string, version?: string): Promise<boolean> {
-        const status = await this.getImportStatus(dictId);
-        if (!status || !status.completed) {
-            return false;
-        }
-        if (version !== undefined && status.version !== version) {
-            return false;
-        }
-        const count = await this.count();
-        if (count === 0) {
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * Clears all records from the dictionary object store.
-     * Optionally also clears the import status for the specified dictId.
-     */
-    public async clear(dictId?: string): Promise<void> {
-        if (this.isClosed) {
-            throw new Error("IndexedDbJisyoStore is closed");
-        }
         const db = await this.ensureInitialized();
-
-        return new Promise<void>((resolve, reject) => {
-            const hasMeta = db.objectStoreNames.contains("system_metadata");
-            const storeNames = hasMeta ? [this.storeName, "system_metadata"] : [this.storeName];
-            const tx = db.transaction(Array.from(new Set(storeNames)), "readwrite");
-            const store = tx.objectStore(this.storeName);
-            store.clear();
-
-            if (hasMeta && dictId) {
-                const metaStore = tx.objectStore("system_metadata");
-                metaStore.delete(dictId);
-            }
-
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => reject(tx.error ?? new Error("Failed to clear IndexedDB store"));
-            tx.onabort = () => reject(tx.error ?? new Error("Clear transaction aborted"));
+        return new Promise<boolean>((resolve, reject) => {
+            let completed = false;
+            const tx = db.transaction(
+                [SYSTEM_CATALOG_STORE, SYSTEM_ENTRIES_STORE, SYSTEM_LEGACY_STORE],
+                "readonly",
+            );
+            const catalogRequest = tx.objectStore(SYSTEM_CATALOG_STORE).get(dictId);
+            catalogRequest.onsuccess = () => {
+                const active = catalogRequest.result as ActiveDictionaryRecord | undefined;
+                if (!active || (version !== undefined && active.version !== version)) return;
+                if (active.storage === "generation" && !active.activeGeneration) return;
+                const countRequest = active.storage === "legacy"
+                    ? tx.objectStore(SYSTEM_LEGACY_STORE).count()
+                    : tx.objectStore(SYSTEM_ENTRIES_STORE).count(
+                        generationRange(dictId, active.activeGeneration!),
+                    );
+                countRequest.onsuccess = () => {
+                    completed = countRequest.result === active.entryCount;
+                };
+            };
+            tx.oncomplete = () => resolve(completed);
+            tx.onerror = () => reject(tx.error ?? new Error(`Failed to verify dictionary "${dictId}"`));
+            tx.onabort = () => reject(tx.error ?? new Error(`Dictionary verification aborted for "${dictId}"`));
         });
     }
 
-    /**
-     * Counts the total number of records currently stored in the object store.
-     */
-    public async count(): Promise<number> {
-        const db = await this.ensureInitialized();
+    public async count(dictId?: string): Promise<number> {
+        const ids = dictId ? [dictId] : this.dictionaryIds;
+        const records = await Promise.all(ids.map((id) => this.getActiveDictionary(id)));
+        return records.reduce((sum, record) => sum + (record?.entryCount ?? 0), 0);
+    }
 
-        return new Promise<number>((resolve, reject) => {
-            const tx = db.transaction(this.storeName, "readonly");
-            const store = tx.objectStore(this.storeName);
-            const req = store.count();
-
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error ?? new Error("Failed to count records in IndexedDB store"));
+    public async clearDictionary(dictId: string): Promise<void> {
+        await this.runImportExclusive(dictId, async () => {
+            const active = await this.getActiveDictionary(dictId);
+            const db = await this.ensureInitialized();
+            await new Promise<void>((resolve, reject) => {
+                const stores = active?.storage === "legacy"
+                    ? [SYSTEM_CATALOG_STORE, SYSTEM_LEGACY_STORE]
+                    : [SYSTEM_CATALOG_STORE];
+                const tx = db.transaction(stores, "readwrite");
+                tx.objectStore(SYSTEM_CATALOG_STORE).delete(dictId);
+                if (active?.storage === "legacy") tx.objectStore(SYSTEM_LEGACY_STORE).clear();
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error ?? new Error(`Failed to clear dictionary "${dictId}"`));
+                tx.onabort = () => reject(tx.error ?? new Error(`Clear transaction aborted for "${dictId}"`));
+            });
+            await this.cleanupAbandonedGenerations(dictId);
         });
     }
 
-    /**
-     * Closes the active IndexedDB connection.
-     */
     public close(): void {
-        if (this.db) {
-            this.db.close();
-            this.db = null;
-        }
+        this.db?.close();
+        this.db = null;
         this.initPromise = null;
         this.isClosed = true;
     }
 
-    /**
-     * Deletes the entire IndexedDB database (useful for reset, migration, or test cleanup).
-     */
-    public static async deleteDatabase(dbName: string = "skk_dictionary", factory?: IDBFactory): Promise<void> {
+    public static async deleteDatabase(dbName = "skk_dictionary", factory?: IDBFactory): Promise<void> {
         const idb = factory ?? (typeof indexedDB !== "undefined" ? indexedDB : undefined);
         if (!idb) return;
-
         return new Promise<void>((resolve, reject) => {
-            const req = idb.deleteDatabase(dbName);
-            req.onsuccess = () => resolve();
-            req.onerror = () => reject(req.error ?? new Error(`Failed to delete database "${dbName}"`));
-            req.onblocked = () => resolve();
+            const request = idb.deleteDatabase(dbName);
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error ?? new Error(`Failed to delete database "${dbName}"`));
+            request.onblocked = () => resolve();
         });
     }
 }

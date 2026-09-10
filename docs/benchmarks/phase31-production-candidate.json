@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-09T23:40:41.738Z",
+  "provenance": {
+    "gitHead": "b3c10c95507a393dc70a88685968846f7cbfe0a9",
+    "gitDirty": true,
+    "harnessSha256": "924d0f9b959efac74b2f039cf6913dc3d6e12d14bf18c12ef5d14023ed9ceef6",
+    "backgroundSha256": "a7a20bd262885e4a9527978c36215e82749c340d1b05df7b73706cf02f359c05",
+    "officialDictionarySha256": "729e562f963ec06186c251c116510d6ed89aa525be78d6e2795920786741f0bc",
+    "executedArtifacts": {
+      "chrome": {
+        "path": ".output/chrome-mv3",
+        "snapshot": "一時ディレクトリへコピー後にハッシュし、そのコピーをロードしました。",
+        "manifestRootAlgorithm": "sorted path + NUL + file SHA-256 + LF",
+        "manifestRootSha256": "1f338f5a8dc7f7e99893f6b8bea1a4eb6fac2717abe6a5a50dbbe2688db87218",
+        "files": [
+          {
+            "path": "assets/popup-BplgHI1t.css",
+            "byteLength": 1407,
+            "sha256": "f6156229b29f411786ad2ce1dd8c7954ea8cb4f7cb6057b58d2940b463c9eb0f"
+          },
+          {
+            "path": "background.js",
+            "byteLength": 28229,
+            "sha256": "9cb4a926f33e6d638cf320db300a50539ca5e5cf6b5c1dd6aab018b688c4e5d2"
+          },
+          {
+            "path": "chunks/popup-Domf5gMc.js",
+            "byteLength": 2996,
+            "sha256": "87a4aa7cb62811e5cc6b342391d6097db481ea151bd7b96502a45c6afe223bde"
+          },
+          {
+            "path": "content-scripts/content.js",
+            "byteLength": 121203,
+            "sha256": "75fb23e56fe5928f78f8a5c2d7fa4c62064931430f48fcd1d230f5c646348b79"
+          },
+          {
+            "path": "content-scripts/monaco-compat.js",
+            "byteLength": 626,
+            "sha256": "0984bf9ba56f088fca51161e32889b044f96ae46c6318838c2a111d3a63b80f6"
+          },
+          {
+            "path": "dict/SKK-JISYO.S",
+            "byteLength": 73810,
+            "sha256": "3963726be1774a74f52e939dcb4fb736be534d572ffefcfa864b1be1db9d9f8e"
+          },
+          {
+            "path": "dict/SKK-JISYO.S.json",
+            "byteLength": 93963,
+            "sha256": "729e562f963ec06186c251c116510d6ed89aa525be78d6e2795920786741f0bc"
+          },
+          {
+            "path": "icon/128.png",
+            "byteLength": 3074,
+            "sha256": "9a51ba4154a72f2d6f3c36a1e018a6c1f3932d2748ba6b63339ce93b0ae870b2"
+          },
+          {
+            "path": "icon/16.png",
+            "byteLength": 559,
+            "sha256": "58eddff80c85c1aaf6b6d0b4b65e99e3debacabe93c7083fb3ba2fa67d315236"
+          },
+          {
+            "path": "icon/32.png",
+            "byteLength": 916,
+            "sha256": "df3d956fea6bd2a615515c31067cec039e707badb83a9501737572e45bc5e8dd"
+          },
+          {
+            "path": "icon/48.png",
+            "byteLength": 1334,
+            "sha256": "3c09dff4ead132afcbb2c6de4ad96d07e02ba4a09a4a7f3bdaa7a69736b638d8"
+          },
+          {
+            "path": "icon/96.png",
+            "byteLength": 2366,
+            "sha256": "209c124e64afca9f22663c53ebd16c438abae7ef020e65c989daf9b618b37452"
+          },
+          {
+            "path": "manifest.json",
+            "byteLength": 946,
+            "sha256": "52a804f792624503fcf2dda3b3f4396e12999f5d5b777bf837b95729e0e4ec07"
+          },
+          {
+            "path": "popup.html",
+            "byteLength": 456,
+            "sha256": "4d93218a875ba15ba60961617672942b1bee09e68dc5f5b825bd4dfc7db76220"
+          },
+          {
+            "path": "test.html",
+            "byteLength": 4544,
+            "sha256": "51181cb8798d7010369ea23d9473f58dfa1ae3a5fae17f1da643755509724660"
+          },
+          {
+            "path": "wxt.svg",
+            "byteLength": 1072,
+            "sha256": "e8b659fcd30b4f55427597cbcdcac33c9946d2e5f9e27ed78d6c5697a1d058e8"
+          }
+        ]
+      },
+      "firefox": {
+        "path": ".output/skk-browser-extension-0.0.0-firefox.zip",
+        "byteLength": 118566,
+        "sha256": "225a7f979b7024ece056cebdef09960563ed12c577f34096627d388d14b585cc",
+        "snapshot": "ZIP全体を読み込んでハッシュし、その同じバイト列を一時ファイルへ保存してインストールしました。",
+        "officialDictionaryMember": {
+          "path": "dict/SKK-JISYO.S.json",
+          "byteLength": 93963,
+          "sha256": "729e562f963ec06186c251c116510d6ed89aa525be78d6e2795920786741f0bc",
+          "validation": "インストール対象ZIPの中央ディレクトリとローカルヘッダーを検証し、展開したメンバーをハッシュしました。"
+        }
+      }
+    },
+    "node": "v24.1.0",
+    "osRelease": "7.0.0-29-generic",
+    "cpuModel": "13th Gen Intel(R) Core(TM) i7-13700K",
+    "chrome": "Google Chrome for Testing 152.0.7977.82",
+    "firefox": "Mozilla Firefox 155.0.1",
+    "geckodriver": "geckodriver 0.37.1 ( 2026-09-04)"
+  },
+  "invocation": {
+    "browser": "both",
+    "samples": 12,
+    "commandArguments": [
+      "--browser",
+      "both",
+      "--output",
+      "docs/benchmarks/phase31-production-candidate.json"
+    ]
+  },
+  "boundary": "ドライバーがSpace送信を開始してから、ページ外からHUDの「日本」を観測するまでです。自動化通信と20ms以下のFirefoxポーリング待ちを含みます。純粋なユーザー入力レイテンシではありません。",
+  "results": {
+    "chrome": {
+      "browserVersion": "Chrome/152.0.7977.82",
+      "samplesMs": [
+        7.677445000000034,
+        12.372823000000153,
+        3.4484939999999824,
+        1.642272999999932,
+        1.4117919999998776,
+        3.334969000000001,
+        9.762535999999955,
+        5.1080950000000485,
+        7.649447000000009,
+        5.737915000000157,
+        6.48627499999975,
+        6.603685999999925
+      ],
+      "summary": {
+        "medianMs": 5.737915000000157,
+        "p95Ms": 12.372823000000153
+      },
+      "candidate": "日本"
+    },
+    "firefox": {
+      "browserVersion": "155.0.1",
+      "samplesMs": [
+        28.745406000000003,
+        5.9525940000003175,
+        4.735722000000351,
+        5.296652999999424,
+        4.674197999999706,
+        7.997583999999733,
+        3.5611180000005334,
+        4.155738000000383,
+        4.330587000000378,
+        3.2071879999994053,
+        6.198900999999751,
+        8.154348000000027
+      ],
+      "summary": {
+        "medianMs": 4.735722000000351,
+        "p95Ms": 28.745406000000003
+      },
+      "candidate": "日本"
+    }
+  }
+}
