@@ -1,4 +1,5 @@
-import { Candidate } from "./candidate";
+import { Candidate, candidateIdentity } from "./candidate";
+import { lookupOkuriAlphabet } from "./okuri";
 
 /**
  * Parsed dictionary entry representation.
@@ -58,7 +59,7 @@ export function escapeCandidateWord(word: string): string {
     if (word.startsWith('(concat "') && word.endsWith('")')) {
         return word;
     }
-    if (word.includes("/") || word.includes(";") || word.includes("\\")) {
+    if (word.includes("/") || word.includes(";") || word.includes("\\") || word.startsWith("[") || word === "]") {
         const escaped = word
             .replace(/\\/g, "\\\\")
             .replace(/"/g, '\\"')
@@ -136,7 +137,22 @@ export function parseJisyoLine(line: string): JisyoEntry | undefined {
     const tokens = inner.split("/");
     const candidates: Candidate[] = [];
 
-    for (const token of tokens) {
+    let okuri: string | undefined;
+    let blockEnd = -1;
+    for (let index = 0; index < tokens.length; index++) {
+        const token = tokens[index]!;
+        // 送りあり見出しと閉じたブロックが揃う場合だけ、角括弧を構文として扱います。
+        if (okuri === undefined && /[ぁ-ゖー][a-z]$/.test(key) && /^\[[ぁ-ゖー]+$/.test(token)
+            && lookupOkuriAlphabet(token.slice(1)) === key.slice(-1)) {
+            const end = tokens.indexOf("]", index + 1);
+            const body = tokens.slice(index + 1, end);
+            if (end > index + 1 && body.every((part) => part.length > 0 && !part.startsWith("["))) {
+                okuri = token.slice(1);
+                blockEnd = end;
+                continue;
+            }
+        }
+        if (index === blockEnd) { okuri = undefined; continue; }
         if (token.length === 0) {
             continue;
         }
@@ -162,7 +178,7 @@ export function parseJisyoLine(line: string): JisyoEntry | undefined {
             continue;
         }
 
-        candidates.push(new Candidate(word, annotation));
+        candidates.push(new Candidate(word, annotation, { okuri }));
     }
 
     if (candidates.length === 0) {
@@ -201,7 +217,7 @@ export function parseJisyoText(text: string): Map<string, Candidate[]> {
         const existing = map.get(key);
         if (existing) {
             for (const candidate of candidates) {
-                const existingCand = existing.find((c) => c.word === candidate.word);
+                const existingCand = existing.find((c) => candidateIdentity(c) === candidateIdentity(candidate));
                 if (!existingCand) {
                     existing.push(candidate);
                 } else if (!existingCand.annotation && candidate.annotation) {
@@ -225,7 +241,7 @@ export function parseJisyoText(text: string): Map<string, Candidate[]> {
  * @returns Formatted SKK line
  */
 export function formatJisyoLine(key: string, candidates: readonly Candidate[]): string {
-    const candsStr = candidates.map((c) => formatCandidate(c)).join("/");
+    const candsStr = candidates.map((c) => c.okuri === undefined ? formatCandidate(c) : `[${c.okuri}/${formatCandidate(c)}/]`).join("/");
     return `${key} /${candsStr}/`;
 }
 

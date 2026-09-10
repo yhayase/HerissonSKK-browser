@@ -1,4 +1,4 @@
-import { Candidate } from "./candidate";
+import { Candidate, mergeCandidates } from "./candidate";
 import type { IJisyoProvider } from "./IJisyoProvider";
 
 export class Entry {
@@ -14,9 +14,15 @@ export class Entry {
             this.cookedCandidateList = this.rawCandidateList;
         } else {
             this.cookedCandidateList = this.rawCandidateList.map((c) => {
-                return new Candidate(c.word + okuri, c.annotation);
+                return new Candidate(c.word + okuri, c.annotation, c);
             });
         }
+    }
+
+    /** 実際の送り仮名に合う候補だけを表示し、選択対象の条件を保ちます。 */
+    forOkuri(okuri: string): Entry | undefined {
+        const candidates = mergeCandidates(this.rawCandidateList.filter((c) => c.okuri === undefined || c.okuri === okuri), true);
+        return candidates.length ? new Entry(this.midashigo, candidates, "") : undefined;
     }
 
     getMidashigo(): string {

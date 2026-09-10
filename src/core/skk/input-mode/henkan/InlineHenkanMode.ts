@@ -108,13 +108,8 @@ export class InlineHenkanMode extends AbstractHenkanMode {
         if (key === 'X') {
             const rawMidashigo = this.getMidashigo();
 
-            // lookup the raw candidates again because entries in this.candidateList may be cooked and have okurigana.
-            const rawCandidateList = await this.editor.getJisyoProvider().lookupCandidates(rawMidashigo);
-            if (rawCandidateList === undefined) {
-                throw new Error("Unconsistent state: Candidate list is not found in the global jisyo.");
-            }
-
-            const cand = rawCandidateList.getCandidateList()[this.candidateIndex];
+            // 表示中の候補に対応する条件と順位を使います。
+            const cand = this.jisyoEntry.getRawCandidateList()[this.candidateIndex];
             if (cand === undefined) {
                 throw new Error("Unconsistent state: Candidate is not found in the global jisyo.");
             }

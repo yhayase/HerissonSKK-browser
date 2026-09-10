@@ -1,3 +1,7 @@
+import type { IUserJisyoStorage } from '../../core/skk/jisyo/IJisyoStorage';
+import { CompositeJisyoProvider } from '../../core/skk/jisyo/CompositeJisyoProvider';
+import { copyCandidate } from '../../core/skk/jisyo/candidate';
+import type { SystemDictionaryPreview } from './messages';
 import type { SystemDictionaryManager } from '../jisyo/SystemDictionaryManager';
 
 /** 設定変更は拡張機能のトップレベル画面に限定します。 */
@@ -14,9 +18,23 @@ export function assertSystemSettingsSender(sender: unknown, extensionId: string,
     }
 }
 
-export async function handleSystemDictionaryRpc(manager: SystemDictionaryManager, message: Record<string, unknown>, sender: unknown, extensionId: string, extensionRoot: string): Promise<unknown> {
+export async function handleSystemDictionaryRpc(manager: SystemDictionaryManager, message: Record<string, unknown>, sender: unknown, extensionId: string, extensionRoot: string, userStore?: IUserJisyoStorage): Promise<unknown> {
     assertSystemSettingsSender(sender, extensionId, extensionRoot);
     switch (message.type) {
+        case 'SKK_SYSTEM_PREVIEW': {
+            if (typeof message.key !== 'string' || !message.key || message.key.length > 1024
+                || (message.okuri !== undefined && (typeof message.okuri !== 'string' || message.okuri.length > 1024))) {
+                throw new Error('読みと送り仮名を正しく指定してください。');
+            }
+            if (!userStore) throw new Error('ユーザー辞書を読み取れません。');
+            await manager.initialize();
+            const system = await manager.store.lookup(message.key);
+            const provider = new CompositeJisyoProvider(userStore, [{ lookup: async () => system }]);
+            const effective = await provider.lookupCandidates(message.key);
+            const okuri = message.okuri as string | undefined;
+            const select = (entry: typeof system) => (okuri === undefined ? entry : entry?.forOkuri(okuri))?.getCandidateList().map(copyCandidate) ?? [];
+            return { key: message.key, okuri, systemCandidates: select(system), effectiveCandidates: select(effective) } satisfies SystemDictionaryPreview;
+        }
         case 'SKK_SYSTEM_STATUS': return manager.status();
         case 'SKK_SYSTEM_CONFIGURE': return manager.configure(message.dictionaries);
         case 'SKK_SYSTEM_IMPORT': return manager.importDictionary(message.dictionary, message.bytes);

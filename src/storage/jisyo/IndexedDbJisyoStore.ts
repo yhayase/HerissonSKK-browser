@@ -1,7 +1,7 @@
 import { SYSTEM_CONFIGURATION_ID, SYSTEM_OPERATION_ID, type SystemDictionaryConfiguration, type SystemDictionaryOperation } from "./SystemDictionaryConfiguration";
 import type { IJisyoStorage } from "../../core/skk/jisyo/IJisyoStorage";
 import type { JisyoEntry } from "../../core/skk/jisyo/JisyoParser";
-import { Candidate } from "../../core/skk/jisyo/candidate";
+import { Candidate, copyCandidate, mergeCandidates, type CandidateData, type CandidateSource } from "../../core/skk/jisyo/candidate";
 import { Entry } from "../../core/skk/jisyo/entry";
 import {
     DEFAULT_STARTER_DICTIONARY_ID,
@@ -14,10 +14,7 @@ import {
     openSkkDatabase,
 } from "../indexedDbSchema";
 
-export interface StoredCandidate {
-    word: string;
-    annotation?: string;
-}
+export interface StoredCandidate extends CandidateData {}
 
 export interface StoredJisyoRecord {
     dictId: string;
@@ -88,20 +85,12 @@ function toStoredRecord(dictId: string, generation: string, entry: JisyoEntry): 
         dictId,
         generation,
         key: entry.key,
-        candidates: entry.candidates.map((candidate) => ({
-            word: candidate.word,
-            ...(candidate.annotation ? { annotation: candidate.annotation } : {}),
-        })),
+        candidates: entry.candidates.map(copyCandidate),
     };
 }
 
-function appendCandidates(target: Candidate[], seen: Set<string>, candidates: readonly StoredCandidate[]): void {
-    for (const candidate of candidates) {
-        if (!seen.has(candidate.word)) {
-            seen.add(candidate.word);
-            target.push(new Candidate(candidate.word, candidate.annotation));
-        }
-    }
+function appendCandidates(target: Candidate[], candidates: readonly StoredCandidate[], source: CandidateSource): void {
+    target.push(...candidates.map((c) => new Candidate(c.word, c.annotation, { okuri: c.okuri, sources: [{ ...source, annotation: c.annotation }] })));
 }
 
 export class IndexedDbJisyoStore implements IJisyoStorage {
@@ -220,12 +209,12 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
         }
     }
 
-    private readLookupDictionaryIds(tx: IDBTransaction, read: (ids: string[]) => void): void {
+    private readLookupDictionaryIds(tx: IDBTransaction, read: (ids: string[], names?: Map<string, string>) => void): void {
         if (!this.useSystemConfiguration) { read([...this.dictionaryIds]); return; }
         const request = tx.objectStore(SYSTEM_METADATA_STORE).get(SYSTEM_CONFIGURATION_ID);
         request.onsuccess = () => {
             const config = request.result as SystemDictionaryConfiguration | undefined;
-            read(config ? config.dictionaries.filter((d) => d.enabled).map((d) => d.dictId) : [...this.dictionaryIds]);
+            read(config ? config.dictionaries.filter((d) => d.enabled).map((d) => d.dictId) : [...this.dictionaryIds], new Map(config?.dictionaries.map((d) => [d.dictId, d.name])));
         };
     }
 
@@ -309,7 +298,9 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
             const records = new Map<string, StoredCandidate[]>();
 
             let dictionaryIds = [...this.dictionaryIds];
-            this.readLookupDictionaryIds(tx, (ids) => {
+            let dictionaryNames = new Map<string, string>();
+            this.readLookupDictionaryIds(tx, (ids, names) => {
+                dictionaryNames = names ?? new Map();
                 dictionaryIds = ids;
                 for (const dictId of dictionaryIds) {
                     const catalogRequest = tx.objectStore(SYSTEM_CATALOG_STORE).get(dictId);
@@ -329,9 +320,8 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
 
             tx.oncomplete = () => {
                 const candidates: Candidate[] = [];
-                const seen = new Set<string>();
-                for (const dictId of dictionaryIds) appendCandidates(candidates, seen, records.get(dictId) ?? []);
-                resolve(candidates.length > 0 ? new Entry(key, candidates, "") : undefined);
+                for (const dictId of dictionaryIds) appendCandidates(candidates, records.get(dictId) ?? [], { kind: "system", dictId, name: dictionaryNames.get(dictId) });
+                resolve(candidates.length > 0 ? new Entry(key, mergeCandidates(candidates), "") : undefined);
             };
             tx.onerror = () => reject(tx.error ?? new Error(`Failed to lookup key "${key}" in IndexedDB`));
             tx.onabort = () => reject(tx.error ?? new Error(`Lookup transaction aborted for "${key}"`));
@@ -346,7 +336,9 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
             const records = new Map<string, Array<StoredJisyoRecord | LegacyStoredJisyoRecord>>();
 
             let dictionaryIds = [...this.dictionaryIds];
-            this.readLookupDictionaryIds(tx, (ids) => {
+            let dictionaryNames = new Map<string, string>();
+            this.readLookupDictionaryIds(tx, (ids, names) => {
+                dictionaryNames = names ?? new Map();
                 dictionaryIds = ids;
                 for (const dictId of dictionaryIds) {
                     const catalogRequest = tx.objectStore(SYSTEM_CATALOG_STORE).get(dictId);
@@ -369,20 +361,20 @@ export class IndexedDbJisyoStore implements IJisyoStorage {
             });
 
             tx.oncomplete = () => {
-                const byKey = new Map<string, { candidates: Candidate[]; seen: Set<string> }>();
+                const byKey = new Map<string, { candidates: Candidate[] }>();
                 for (const dictId of dictionaryIds) {
                     for (const record of records.get(dictId) ?? []) {
                         let combined = byKey.get(record.key);
                         if (!combined) {
-                            combined = { candidates: [], seen: new Set() };
+                            combined = { candidates: [] };
                             byKey.set(record.key, combined);
                         }
-                        appendCandidates(combined.candidates, combined.seen, record.candidates);
+                        appendCandidates(combined.candidates, record.candidates, { kind: "system", dictId, name: dictionaryNames.get(dictId) });
                     }
                 }
                 const keys = [...byKey.keys()].sort();
                 const selected = limit === undefined ? keys : keys.slice(0, limit);
-                resolve(selected.map((entryKey) => new Entry(entryKey, byKey.get(entryKey)!.candidates, "")));
+                resolve(selected.map((entryKey) => new Entry(entryKey, mergeCandidates(byKey.get(entryKey)!.candidates), "")));
             };
             tx.onerror = () => reject(tx.error ?? new Error(`Failed to lookup prefix "${prefix}" in IndexedDB`));
             tx.onabort = () => reject(tx.error ?? new Error(`Prefix lookup transaction aborted for "${prefix}"`));

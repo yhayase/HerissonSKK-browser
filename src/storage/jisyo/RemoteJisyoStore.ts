@@ -1,5 +1,5 @@
 import type { IJisyoStorage } from "../../core/skk/jisyo/IJisyoStorage";
-import { Candidate } from "../../core/skk/jisyo/candidate";
+import { Candidate, copyCandidate } from "../../core/skk/jisyo/candidate";
 import { Entry } from "../../core/skk/jisyo/entry";
 import type { EntryData } from "../rpc/messages";
 import { isRuntimeAvailable, sendRuntimeMessage, type IRuntimeClient } from "../rpc/runtimeClient";
@@ -65,7 +65,7 @@ export class RemoteJisyoStore implements IJisyoStorage {
                 return undefined;
             }
 
-            const candidates = data.candidates.map((c) => new Candidate(c.word, c.annotation));
+            const candidates = data.candidates.map((c) => copyCandidate(c));
             return new Entry(data.midashigo || key, candidates, "");
         } catch (err) {
             if (this.fallbackStore) {
@@ -99,7 +99,7 @@ export class RemoteJisyoStore implements IJisyoStorage {
             }
 
             return list.map((item) => {
-                const candidates = item.candidates.map((c) => new Candidate(c.word, c.annotation));
+                const candidates = item.candidates.map((c) => copyCandidate(c));
                 return new Entry(item.midashigo, candidates, "");
             });
         } catch (err) {

@@ -1,14 +1,11 @@
 import type { IUserJisyoStorage } from "../../core/skk/jisyo/IJisyoStorage";
-import { Candidate } from "../../core/skk/jisyo/candidate";
+import { Candidate, copyCandidate, candidateIdentity, type CandidateData as CoreCandidateData } from "../../core/skk/jisyo/candidate";
 import { SKK_DATABASE_VERSION, openSkkDatabase } from "../indexedDbSchema";
 
 /**
  * Candidate data representation stored in IndexedDB for user dictionary.
  */
-export interface StoredUserCandidate {
-    word: string;
-    annotation?: string;
-}
+export interface StoredUserCandidate extends CoreCandidateData {}
 
 /**
  * Record structure stored in the user_jisyo object store.
@@ -142,7 +139,7 @@ export class IndexedDbUserStore implements IUserJisyoStorage {
                 for (const record of records) {
                     if (record.key && record.candidates && record.candidates.length > 0) {
                         const candidates = record.candidates.map(
-                            (c) => new Candidate(c.word, c.annotation)
+                            (c) => copyCandidate(c)
                         );
                         map.set(record.key, candidates);
                     }
@@ -171,16 +168,13 @@ export class IndexedDbUserStore implements IUserJisyoStorage {
             getReq.onsuccess = () => {
                 const record = getReq.result as StoredUserRecord | undefined;
                 const existingCandidates = record?.candidates ? [...record.candidates] : [];
-                const existingIdx = existingCandidates.findIndex((c) => c.word === candidate.word);
+                const existingIdx = existingCandidates.findIndex((c) => candidateIdentity(c) === candidateIdentity(candidate));
 
                 if (existingIdx !== -1) {
                     existingCandidates.splice(existingIdx, 1);
                 }
 
-                existingCandidates.unshift({
-                    word: candidate.word,
-                    ...(candidate.annotation ? { annotation: candidate.annotation } : {}),
-                });
+                existingCandidates.unshift(copyCandidate(candidate));
 
                 const newRecord: StoredUserRecord = {
                     key,
@@ -236,11 +230,11 @@ export class IndexedDbUserStore implements IUserJisyoStorage {
                     // First try exact word + annotation match if annotation is specified
                     if (targetAnnotation !== undefined) {
                         foundIndex = candidates.findIndex(
-                            (c) => c.word === targetWord && c.annotation === targetAnnotation
+                            (c) => c.word === targetWord && c.annotation === targetAnnotation && (typeof target === "string" || candidateIdentity(c) === candidateIdentity(target))
                         );
                     }
                     if (foundIndex === -1) {
-                        foundIndex = candidates.findIndex((c) => c.word === targetWord);
+                        foundIndex = candidates.findIndex((c) => c.word === targetWord && (typeof target === "string" || candidateIdentity(c) === candidateIdentity(target)));
                     }
                 }
 
@@ -296,7 +290,7 @@ export class IndexedDbUserStore implements IUserJisyoStorage {
                 }
 
                 const candidates = [...record.candidates];
-                const index = candidates.findIndex((c) => c.word === candidate.word);
+                const index = candidates.findIndex((c) => candidateIdentity(c) === candidateIdentity(candidate));
                 if (index === -1) {
                     return;
                 }
@@ -340,10 +334,7 @@ export class IndexedDbUserStore implements IUserJisyoStorage {
                 if (!key || candidates.length === 0) continue;
                 const record: StoredUserRecord = {
                     key,
-                    candidates: candidates.map((c) => ({
-                        word: c.word,
-                        ...(c.annotation ? { annotation: c.annotation } : {}),
-                    })),
+                    candidates: candidates.map(copyCandidate),
                     updatedAt: now,
                 };
                 store.put(record);

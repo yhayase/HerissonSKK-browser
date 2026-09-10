@@ -1,7 +1,7 @@
 import { SystemDictionaryManager } from '@/src/storage/jisyo/SystemDictionaryManager';
 import { handleSystemDictionaryRpc } from '@/src/storage/rpc/systemDictionaryRpc';
 import { IndexedDbUserStore } from '@/src/storage/user-jisyo/IndexedDbUserStore';
-import { Candidate } from '@/src/core/skk/jisyo/candidate';
+import { Candidate, copyCandidate } from '@/src/core/skk/jisyo/candidate';
 import type { SkkRpcRequest, CandidateData } from '@/src/storage/rpc/messages';
 import type { IUserJisyoSyncEvent } from '@/src/core/skk/jisyo/CompositeJisyoProvider';
 
@@ -50,7 +50,7 @@ export default defineBackground(() => {
    */
   async function handleRpc(message: SkkRpcRequest, _sender: any): Promise<any> {
     if (message.type.startsWith('SKK_SYSTEM_')) {
-      return handleSystemDictionaryRpc(dictionaryManager, message, _sender, browser.runtime.id, browser.runtime.getURL('/'));
+      return handleSystemDictionaryRpc(dictionaryManager, message, _sender, browser.runtime.id, browser.runtime.getURL('/'), userStore);
     }
     switch (message.type) {
       case 'SKK_WAIT_READY': {
@@ -64,10 +64,7 @@ export default defineBackground(() => {
         if (!entry) return null;
         return {
           midashigo: entry.getMidashigo(),
-          candidates: entry.getCandidateList().map((c) => ({
-            word: c.word,
-            annotation: c.annotation,
-          })),
+          candidates: entry.getCandidateList().map(copyCandidate),
         };
       }
 
@@ -76,10 +73,7 @@ export default defineBackground(() => {
         const entries = await systemStore.lookupPrefix(message.prefix, message.limit);
         return entries.map((e) => ({
           midashigo: e.getMidashigo(),
-          candidates: e.getCandidateList().map((c) => ({
-            word: c.word,
-            annotation: c.annotation,
-          })),
+          candidates: e.getCandidateList().map(copyCandidate),
         }));
       }
 
@@ -87,16 +81,13 @@ export default defineBackground(() => {
         const entriesMap = await userStore.loadUserEntries();
         const result: Record<string, CandidateData[]> = {};
         for (const [key, candidates] of entriesMap.entries()) {
-          result[key] = candidates.map((c) => ({
-            word: c.word,
-            annotation: c.annotation,
-          }));
+          result[key] = candidates.map(copyCandidate);
         }
         return result;
       }
 
       case 'SKK_USER_SAVE': {
-        const cand = new Candidate(message.candidate.word, message.candidate.annotation);
+        const cand = copyCandidate(message.candidate);
         return await userStore.saveCandidate(message.key, cand);
       }
 
@@ -107,7 +98,7 @@ export default defineBackground(() => {
         }
         const cand =
           typeof target === 'object'
-            ? new Candidate(target.word, target.annotation)
+            ? copyCandidate(target)
             : target;
         const success = await userStore.reorderCandidate(message.key, cand);
         if (success) {
@@ -125,7 +116,7 @@ export default defineBackground(() => {
       }
 
       case 'SKK_USER_DELETE': {
-        const cand = new Candidate(message.candidate.word, message.candidate.annotation);
+        const cand = copyCandidate(message.candidate);
         return await userStore.deleteCandidate(message.key, cand);
       }
 
@@ -145,7 +136,7 @@ export default defineBackground(() => {
         for (const [key, cands] of Object.entries(message.entries)) {
           map.set(
             key,
-            cands.map((c) => new Candidate(c.word, c.annotation))
+            cands.map((c) => copyCandidate(c))
           );
         }
         const success = userStore.saveUserEntries ? await userStore.saveUserEntries(map) : false;

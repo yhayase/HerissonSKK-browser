@@ -1,6 +1,6 @@
 import type { IJisyoProvider } from "./IJisyoProvider";
 import type { IJisyoStorage, IUserJisyoStorage } from "./IJisyoStorage";
-import { Candidate } from "./candidate";
+import { Candidate, copyCandidate, candidateIdentity, mergeCandidates, type CandidateData } from "./candidate";
 import { Entry } from "./entry";
 
 /**
@@ -18,7 +18,7 @@ export type UserJisyoSyncEventType =
 export interface IUserJisyoSyncEvent {
     type?: UserJisyoSyncEventType;
     key?: string;
-    candidate?: { word: string; annotation?: string };
+    candidate?: CandidateData;
     selectedIndex?: number;
     senderId?: string;
     mutationId?: string;
@@ -168,11 +168,11 @@ export class CompositeJisyoProvider implements IJisyoProvider {
 
         if (event.type === "CANDIDATE_SAVED" && event.key && event.candidate) {
             const list = this.userDictionary.get(event.key) ?? [];
-            const idx = list.findIndex((c) => c.word === event.candidate!.word);
+            const idx = list.findIndex((c) => candidateIdentity(c) === candidateIdentity(event.candidate!));
             if (idx !== -1) {
                 list.splice(idx, 1);
             }
-            list.unshift(new Candidate(event.candidate.word, event.candidate.annotation));
+            list.unshift(copyCandidate(event.candidate));
             this.userDictionary.set(event.key, list);
             return;
         }
@@ -180,7 +180,7 @@ export class CompositeJisyoProvider implements IJisyoProvider {
         if (event.type === "CANDIDATE_DELETED" && event.key && event.candidate) {
             const list = this.userDictionary.get(event.key);
             if (list) {
-                const idx = list.findIndex((c) => c.word === event.candidate!.word);
+                const idx = list.findIndex((c) => candidateIdentity(c) === candidateIdentity(event.candidate!));
                 if (idx !== -1) {
                     list.splice(idx, 1);
                 }
@@ -223,23 +223,10 @@ export class CompositeJisyoProvider implements IJisyoProvider {
             }
         }
 
-        // Combine: user candidates first, then system candidates
-        const seenWords = new Set<string>();
-        const combined: Candidate[] = [];
-
-        for (const cand of userCands) {
-            if (!seenWords.has(cand.word)) {
-                seenWords.add(cand.word);
-                combined.push(cand);
-            }
-        }
-
-        for (const cand of systemCands) {
-            if (!seenWords.has(cand.word)) {
-                seenWords.add(cand.word);
-                combined.push(cand);
-            }
-        }
+        const combined = mergeCandidates([
+            ...userCands.map((c) => new Candidate(c.word, c.annotation, { okuri: c.okuri, sources: [{ kind: "learned", annotation: c.annotation }] })),
+            ...systemCands,
+        ]);
 
         if (combined.length === 0) {
             return undefined;
@@ -262,7 +249,7 @@ export class CompositeJisyoProvider implements IJisyoProvider {
 
         // Update in-memory user dictionary (unshift to front)
         const list = this.userDictionary.get(key) ?? [];
-        const existingIdx = list.findIndex((c) => c.word === candidate.word);
+        const existingIdx = list.findIndex((c) => candidateIdentity(c) === candidateIdentity(candidate));
         if (existingIdx !== -1) {
             list.splice(existingIdx, 1);
         }
@@ -280,7 +267,7 @@ export class CompositeJisyoProvider implements IJisyoProvider {
             this.syncNotifier?.broadcastMutation({
                 type: "CANDIDATE_SAVED",
                 key,
-                candidate: { word: candidate.word, annotation: candidate.annotation },
+                candidate: copyCandidate(candidate),
                 senderId: this.senderId,
                 mutationId,
                 timestamp: Date.now(),
@@ -321,7 +308,7 @@ export class CompositeJisyoProvider implements IJisyoProvider {
         } else if (typeof target === "string") {
             selected = candidates.find((c) => c.word === target);
         } else if (typeof target === "object" && (target as any).word) {
-            selected = new Candidate((target as any).word, (target as any).annotation);
+            selected = copyCandidate(target as Candidate);
         }
 
         if (!selected) {
@@ -346,7 +333,7 @@ export class CompositeJisyoProvider implements IJisyoProvider {
         const list = this.userDictionary.get(key);
         let found = false;
         if (list) {
-            const idx = list.findIndex((c) => c.word === candidate.word);
+            const idx = list.findIndex((c) => candidateIdentity(c) === candidateIdentity(candidate));
             if (idx !== -1) {
                 list.splice(idx, 1);
                 found = true;
@@ -367,7 +354,7 @@ export class CompositeJisyoProvider implements IJisyoProvider {
             this.syncNotifier?.broadcastMutation({
                 type: "CANDIDATE_DELETED",
                 key,
-                candidate: { word: candidate.word, annotation: candidate.annotation },
+                candidate: copyCandidate(candidate),
                 senderId: this.senderId,
                 mutationId,
                 timestamp: Date.now(),
