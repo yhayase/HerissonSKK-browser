@@ -1,3 +1,4 @@
+import { handleDictionaryUpload } from './systemDictionaryUpload';
 import type { IUserJisyoStorage } from '../../core/skk/jisyo/IJisyoStorage';
 import { CompositeJisyoProvider } from '../../core/skk/jisyo/CompositeJisyoProvider';
 import { copyCandidate } from '../../core/skk/jisyo/candidate';
@@ -35,6 +36,10 @@ export async function handleSystemDictionaryRpc(manager: SystemDictionaryManager
             const select = (entry: typeof system) => (okuri === undefined ? entry : entry?.forOkuri(okuri))?.getCandidateList().map(copyCandidate) ?? [];
             return { key: message.key, okuri, systemCandidates: select(system), effectiveCandidates: select(effective) } satisfies SystemDictionaryPreview;
         }
+        case 'SKK_SYSTEM_IMPORT_BEGIN':
+        case 'SKK_SYSTEM_IMPORT_CHUNK':
+        case 'SKK_SYSTEM_IMPORT_FINISH':
+        case 'SKK_SYSTEM_IMPORT_CANCEL': return handleDictionaryUpload(manager, message, sender);
         case 'SKK_SYSTEM_STATUS': return manager.status();
         case 'SKK_SYSTEM_CONFIGURE': return manager.configure(message.dictionaries);
         case 'SKK_SYSTEM_IMPORT': return manager.importDictionary(message.dictionary, message.bytes);

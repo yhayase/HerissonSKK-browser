@@ -1,4 +1,5 @@
-import { DictionaryLoader, parseDictionary } from './DictionaryLoader';
+import { parseDictionaryCooperatively, yieldImport } from './CooperativeDictionaryParser';
+import { DictionaryLoader } from './DictionaryLoader';
 import { IndexedDbJisyoStore, type IndexedDbJisyoStoreOptions } from './IndexedDbJisyoStore';
 import {
     DEFAULT_SYSTEM_DICTIONARIES, SYSTEM_CONFIGURATION_ID, SYSTEM_OPERATION_ID, SYSTEM_DICTIONARY_CATALOG,
@@ -126,9 +127,23 @@ export class SystemDictionaryManager {
     public async importDictionary(value: unknown, input: unknown): Promise<SystemDictionaryStatus> {
         const [definition] = validateSystemDictionaries([value]);
         if (definition!.kind !== 'local') throw new Error('ローカル辞書を指定してください。');
-        if (!Array.isArray(input) || input.length === 0 || input.length > MAX_DICTIONARY_BYTES
-            || [...input].some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)) throw new Error('辞書ファイルのバイト列が正しくありません。');
-        const bytes = Uint8Array.from(input);
+        if (!Array.isArray(input) || input.length === 0 || input.length > MAX_DICTIONARY_BYTES) throw new Error('辞書ファイルのバイト列が正しくありません。');
+        const bytes = new Uint8Array(input.length);
+        for (let offset = 0; offset < input.length; offset += 65536) {
+            const end = Math.min(offset + 65536, input.length);
+            for (let i = offset; i < end; i++) {
+                const byte = input[i];
+                if (!Number.isInteger(byte) || byte < 0 || byte > 255) throw new Error('辞書ファイルのバイト列が正しくありません。');
+                bytes[i] = byte;
+            }
+            await yieldImport();
+        }
+        return this.importDictionaryBytes(definition!, bytes);
+    }
+
+    public async importDictionaryBytes(value: unknown, bytes: Uint8Array): Promise<SystemDictionaryStatus> {
+        const [definition] = validateSystemDictionaries([value]);
+        if (definition!.kind !== 'local' || !bytes.length || bytes.length > MAX_DICTIONARY_BYTES) throw new Error('ローカル辞書のサイズまたは種類が正しくありません。');
         await this.initialize();
         return this.store.runImportExclusive(configurationLock, async () => {
             const config = (await this.store.getSystemConfiguration())!;
@@ -166,14 +181,14 @@ export class SystemDictionaryManager {
                 await this.store.setSystemOperation({ dictId: SYSTEM_OPERATION_ID, state: 'updating', dictionaryId, generations: staged });
                 const downloaded = localBytes && definition.dictId === forceId ? { bytes: localBytes } : await this.download(definition);
                 if (downloaded.bytes.byteLength === 0 || downloaded.bytes.byteLength > MAX_DICTIONARY_BYTES) throw new Error('辞書ファイルのサイズが正しくありません。');
-                const parsed = parseDictionary(downloaded.bytes, { dictId: definition.dictId, dictPath: definition.source, version: 'pending', format: definition.format });
+                const parsed = await parseDictionaryCooperatively(downloaded.bytes, { dictId: definition.dictId, dictPath: definition.source, version: 'pending', format: definition.format });
                 if (parsed.size === 0) throw new Error('辞書に候補がありません。');
                 const generation = `config-${crypto.randomUUID()}`;
                 staged.push({ dictId: definition.dictId, generation });
                 await this.store.setSystemOperation({ dictId: SYSTEM_OPERATION_ID, state: 'updating', dictionaryId: definition.dictId, generations: staged });
                 const entryCount = await this.store.stageGeneration(definition.dictId, generation,
-                    Array.from(parsed, ([key, candidates]) => ({ key, candidates })));
-                const hash = await crypto.subtle.digest('SHA-256', new Uint8Array(downloaded.bytes));
+                    (function* () { for (const [key, candidates] of parsed) yield { key, candidates }; })(), 250);
+                const hash = await crypto.subtle.digest('SHA-256', downloaded.bytes as Uint8Array<ArrayBuffer>);
                 const version = 'sha256:' + Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('');
                 const cached: CachedSystemDictionary = {
                     definition: { ...definition }, byteSize: downloaded.bytes.byteLength, sourceDate: downloaded.sourceDate,
