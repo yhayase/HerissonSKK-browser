@@ -19,8 +19,8 @@
     "test:production-dictionary": "node scripts/verify-production-dictionary.mjs",
     "test:production-candidate": "node test/production-candidate-timing.mjs",
     "test:unit": "vitest run",
-    "test": "npm run build && xvfb-run -a node test/poc-verify.mjs",
-    "test:firefox": "npm run build:firefox && npm run build:firefox:zip && xvfb-run -a node test/firefox-verify.mjs",
+    "test": "npm run build && xvfb-run -a node test/poc-verify.mjs && xvfb-run -a node test/system-dictionary-e2e.mjs chrome",
+    "test:firefox": "npm run build:firefox && npm run build:firefox:zip && xvfb-run -a node test/firefox-verify.mjs && xvfb-run -a node test/system-dictionary-e2e.mjs firefox",
     "test:all": "npm run test && npm run test:firefox",
     "postinstall": "wxt prepare"
   },

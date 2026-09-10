@@ -543,7 +543,7 @@ async function main() {
     console.log(`[Learning] Final value after 2nd conversion: "${finalLearnedValue}"`);
 
     // Save verification screenshot
-    const screenshotPath = path.resolve(ROOT, 'firefox-verify-screenshot.png');
+    const screenshotPath = path.resolve(ROOT, '.output/firefox-verify-screenshot.png');
     await client.takeScreenshot(screenshotPath);
     console.log(`\n[Screenshot] Saved Firefox headless verification screenshot to: ${screenshotPath}`);
 
