@@ -99,6 +99,9 @@ flowchart TB
 - IndexedDB の接続、辞書初期化、検索、学習、登録は Background Service Worker に集約します。Content Script は `RemoteJisyoStore` / `RemoteUserStore` の RPC を介して利用し、Web ページの実行コンテキストから辞書データを隔離します。
 - システム辞書は辞書 ID と generation を含む複合キーで保存し、投入完了後に active generation を公開します。更新失敗時は旧 generation を維持し、複数辞書の候補順を構成順で合成します。
 - v1〜v3 の既存データベースは v4 へ移行し、旧システム辞書とユーザー学習を保持します。Service Worker が停止後に再起動した場合も IndexedDB を開き直して処理を継続します。
+- システム辞書設定は拡張機能の options / popup から専用 RPC で操作し、Content Script からの管理要求を拒否します。構成 revision と複数辞書の世代をまとめて公開し、更新中・失敗時の検索は前の構成を使用します。無効な辞書のキャッシュも保持します。
+- 候補は辞書順に合成し、単語と送り条件で重複をまとめて出典と注釈を保持します。学習候補はシステム候補より先に表示します。変換中の候補一覧は固定し、全タブの次回変換から新構成を読みます。
+- [システム辞書の設定と検証](./system-dictionaries.md)に、取得元・形式・オフライン利用・検証手順を記載します。
 
 ---
 
