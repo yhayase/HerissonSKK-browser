@@ -106,8 +106,21 @@ async function mutate(request: SkkRpcRequest, file?: File): Promise<void> {
         await refresh();
         if ((model.saved as SystemDictionaryStatus).operation.state === 'updating') throw new Error('別の操作が進行中です。完了後に再試行してください。');
         if (model.conflict) throw new Error('構成が変更されています。編集内容を確認してください。');
-        if (file && request.type === 'SKK_SYSTEM_IMPORT') { validateLocalFile(file.size); request.bytes = Array.from(new Uint8Array(await file.arrayBuffer())); }
-        const result = await publishSettings(model, () => rpc<SystemDictionaryStatus>(request), () => {
+        if (file) validateLocalFile(file.size);
+        const result = await publishSettings(model, async () => {
+            if (!file || request.type !== 'SKK_SYSTEM_IMPORT') return rpc<SystemDictionaryStatus>(request);
+            const token = await rpc<string>({ type: 'SKK_SYSTEM_IMPORT_BEGIN', dictionary: request.dictionary, size: file.size });
+            try {
+                for (let offset = 0; offset < file.size; offset += 65536) {
+                    const bytes = Array.from(new Uint8Array(await file.slice(offset, offset + 65536).arrayBuffer()));
+                    await rpc({ type: 'SKK_SYSTEM_IMPORT_CHUNK', token, offset, bytes });
+                }
+                return await rpc<SystemDictionaryStatus>({ type: 'SKK_SYSTEM_IMPORT_FINISH', token });
+            } catch (error) {
+                await rpc({ type: 'SKK_SYSTEM_IMPORT_CANCEL', token }).catch(() => undefined);
+                throw error;
+            }
+        }, () => {
             drawSaved(); drawDraft(); sourceChoices();
             element('notice').textContent = `保存完了（リビジョン ${model.saved!.revision}）`;
         }, refresh);

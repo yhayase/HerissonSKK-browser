@@ -28,6 +28,10 @@ export type SkkRpcRequest =
     | { type: "SKK_SYSTEM_PREVIEW"; key: string; okuri?: string }
     | { type: "SKK_SYSTEM_CONFIGURE"; dictionaries: SystemDictionaryDefinition[] }
     | { type: "SKK_SYSTEM_IMPORT"; dictionary: SystemDictionaryDefinition; bytes: number[] }
+    | { type: "SKK_SYSTEM_IMPORT_BEGIN"; dictionary: SystemDictionaryDefinition; size: number }
+    | { type: "SKK_SYSTEM_IMPORT_CHUNK"; token: string; offset: number; bytes: number[] }
+    | { type: "SKK_SYSTEM_IMPORT_FINISH"; token: string }
+    | { type: "SKK_SYSTEM_IMPORT_CANCEL"; token: string }
     | { type: "SKK_SYSTEM_UPDATE"; dictId: string }
     | { type: "SKK_JISYO_LOOKUP"; key: string }
     | { type: "SKK_JISYO_LOOKUP_PREFIX"; prefix: string; limit?: number }
