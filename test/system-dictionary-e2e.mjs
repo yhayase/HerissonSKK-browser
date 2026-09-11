@@ -84,7 +84,7 @@ const launch = async (offline = false) => {
   assert.equal(await options.evaluate(() => { const notice = document.querySelector('#notice').textContent; return !notice.includes('リビジョン 0') || (document.querySelector('#draft-controls').disabled && document.querySelector('#import-controls').disabled); }), true);
   await options.evaluate(() => (globalThis.browser ?? chrome).runtime.sendMessage({ type: 'SKK_WAIT_READY' }));
   await click(options, '#refresh');
-  await options.waitForFunction(() => /リビジョン [1-9]/.test(document.querySelector('#notice').textContent));
+  await options.waitForFunction(() => Number(document.querySelector('#notice').dataset.revision) > 0);
   assert.equal(await options.$('#preview-form'), null, 'settings must not contain candidate preview controls');
   const diagnosticsUrl = await options.$eval('#diagnostics-link', (link) => link.href);
   assert.equal(diagnosticsUrl, extensionRoot + 'diagnostics.html');
@@ -131,7 +131,7 @@ const upload = async (page, file) => {
   await page.$eval('#import-file', (el, { bytes, name }) => { const transfer = new DataTransfer(); transfer.items.add(new File([new Uint8Array(bytes)], name)); el.files = transfer.files; el.dispatchEvent(new Event('change', { bubbles: true })); }, { bytes: [...fs.readFileSync(file)], name: path.basename(file) });
 };
 const saved = async (revision) => {
-  await options.waitForFunction((revision) => !document.querySelector('#draft-controls').disabled && document.querySelector('#notice').textContent.includes('保存完了') && Number(document.querySelector('#notice').textContent.match(/\d+/)?.[0]) > revision, { timeout: 30000 }, revision);
+  await options.waitForFunction((revision) => !document.querySelector('#draft-controls').disabled && document.querySelector('#notice').textContent.includes('保存完了') && Number(document.querySelector('#notice').dataset.revision) > revision, { timeout: 30000 }, revision);
   assert.equal(await options.$eval('#error', (el) => el.textContent), '');
 };
 const save = async () => { const before = await status(); await click(options, '#save'); await saved(before.revision); };
@@ -214,14 +214,14 @@ const verifyFirefoxPopup = async (popup) => {
     if (matching.length === 1 && matching[0].status === 'complete' && contexts.length === 1) {
       const response = await browser.connection.send('script.evaluate', {
         target: { context: contexts[0].context }, awaitPromise: true,
-        expression: `JSON.stringify({ url: location.href, title: document.title, readyState: document.readyState, notice: document.querySelector('#notice')?.textContent, disabled: document.querySelector('#draft-controls')?.disabled, rows: [...document.querySelectorAll('#draft-list > [data-dict-id]')].map(el => el.dataset.dictId) })`,
+        expression: `JSON.stringify({ url: location.href, title: document.title, readyState: document.readyState, notice: document.querySelector('#notice')?.textContent, revision: document.querySelector('#notice')?.dataset.revision, disabled: document.querySelector('#draft-controls')?.disabled, rows: [...document.querySelectorAll('#draft-list > [data-dict-id]')].map(el => el.dataset.dictId) })`,
       });
       diagnostic.response = response;
       if (response.result.type === 'success' && response.result.result.type === 'string') {
         const dom = JSON.parse(response.result.result.value);
         if (dom.readyState === 'complete' && dom.disabled === false && dom.rows.includes('skk-jisyo-s')) {
           assert.equal(dom.url, before.url); assert.equal(dom.title, 'SKK 辞書設定');
-          assert.match(dom.notice, /リビジョン [1-9]/);
+          assert.ok(Number(dom.revision) > 0);
           const proof = { tabId: matching[0].id, context: contexts[0].context, dom };
           fs.writeFileSync(path.join(output, 'popup-proof.json'), JSON.stringify(proof, null, 2));
           return proof;
@@ -288,15 +288,18 @@ try {
 
   await fill(options, '#custom-name', 'URL 辞書'); await fill(options, '#custom-source', url + 'custom-v1.txt');
   await permission('deny'); await options.select('#custom-format', 'text'); await click(options, '#add-custom');
-  await options.waitForFunction(() => document.querySelector('#error').textContent.includes('許可されませんでした'));
-  assert.equal(await options.$$eval('#draft-list [data-dict-id^="custom-"]', (items) => items.length), 0);
-  await permission('allow'); await click(options, '#add-custom');
   await options.waitForSelector('#draft-list [data-dict-id^="custom-"]');
   const customId = await options.$eval('#draft-list [data-dict-id^="custom-"]', (item) => item.dataset.dictId);
+  const beforeDeniedSave = await status();
+  await click(options, '#save');
+  await options.waitForFunction(() => document.querySelector('#error').textContent.includes('許可されませんでした'));
+  assert.equal((await status()).revision, beforeDeniedSave.revision);
+  assert.equal(await options.$$eval('#draft-list [data-dict-id^="custom-"]', (items) => items.length), 1);
+  assert.equal(await options.$eval('#save', (el) => el.disabled), false);
+  await permission('allow'); await save();
   assert.deepEqual(await options.evaluate(() => globalThis.__e2ePermissionRequests.slice(-2)), [
     { origins: ['http://127.0.0.1/*'] }, { origins: ['http://127.0.0.1/*'] },
   ]);
-  await save();
   assert.ok(words(await preview('かすたむ')).includes('URL候補'));
   assert.deepEqual(customRequests.at(-1), { url: '/custom-v1.txt', cookie: undefined, authorization: undefined });
 
@@ -311,16 +314,12 @@ try {
   const beforeInvalidImport = await status();
   await fill(options, `#draft-list [data-dict-id="${customId}"] .custom-source input`, url + 'custom-invalid.json');
   await options.select(`#draft-list [data-dict-id="${customId}"] .row select`, 'json');
-  await click(options, `#draft-list [data-dict-id="${customId}"] [data-apply-custom]`);
-  await options.waitForFunction((id) => document.querySelector(`[data-apply-custom="${id}"]`) && !document.querySelector('#draft-controls').disabled, {}, customId);
   await click(options, '#save');
   await options.waitForFunction(() => document.querySelector('#error').textContent.length > 0 && !document.querySelector('#draft-controls').disabled);
   assert.equal((await status()).revision, beforeInvalidImport.revision);
   assert.ok(words(await preview('かすたむ')).includes('URL候補'));
 
   await fill(options, `#draft-list [data-dict-id="${customId}"] .custom-source input`, url + 'custom-v2.json');
-  await click(options, `#draft-list [data-dict-id="${customId}"] [data-apply-custom]`);
-  await options.waitForFunction((id, source) => document.querySelector(`[data-dict-id="${id}"] .metadata`).textContent.includes(source), {}, customId, url + 'custom-v2.json');
   await save();
   assert.ok(words(await preview('かすたむ')).includes('URL更新候補'));
   assert.deepEqual(customRequests.at(-1), { url: '/custom-v2.json', cookie: undefined, authorization: undefined });
@@ -340,6 +339,45 @@ try {
   } else await options.reload();
   await options.waitForFunction(() => !document.querySelector('#draft-controls').disabled);
   await assertConfigurationList();
+  log(`[${flavor}] direct edits, keyboard focus, details and help`);
+  assert.equal(await options.$('[data-apply-custom]'), null);
+  assert.equal(await options.$$eval('#draft-list details[open]', (items) => items.length), 0);
+  const rowSelector = `#draft-list [data-dict-id="${customId}"]`;
+  const originalName = (await status()).dictionaries.find((d) => d.dictId === customId).name;
+  await permission('allow');
+  const requestsBeforeRename = await options.evaluate(() => globalThis.__e2ePermissionRequests.length);
+  await fill(options, `${rowSelector} .custom-name input`, '名前の編集中');
+  assert.equal(await options.$eval('#save', (el) => el.disabled), false);
+  assert.equal(await options.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented;
+  }), true);
+  await options.$eval(`${rowSelector} [data-control="up"]`, (el) => el.focus());
+  if (flavor === 'chrome') await options.keyboard.press('Enter');
+  else await click(options, `${rowSelector} [data-control="up"]`);
+  assert.equal(await options.evaluate(() => document.activeElement?.dataset.control), 'up');
+  assert.equal(await options.$eval(`${rowSelector} .custom-name input`, (el) => el.value), '名前の編集中');
+  // 境界でもフォーカスを失わず、戻す操作も続けられます。
+  if (flavor === 'chrome') await options.keyboard.press('Enter');
+  else await click(options, `${rowSelector} [data-control="up"]`);
+  assert.equal(await options.evaluate(() => document.activeElement?.dataset.control), 'up');
+  await click(options, `${rowSelector} [data-control="down"]`);
+  await save();
+  assert.equal((await status()).dictionaries.find((d) => d.dictId === customId).name, '名前の編集中');
+  assert.equal(await options.evaluate(() => globalThis.__e2ePermissionRequests.length), requestsBeforeRename);
+  await fill(options, `${rowSelector} .custom-name input`, originalName);
+  await click(options, '#reset');
+  assert.equal(await options.$eval(`${rowSelector} .custom-name input`, (el) => el.value), '名前の編集中');
+  await click(options, `${rowSelector} summary`);
+  assert.equal(await options.$eval(`${rowSelector} details`, (el) => el.open), true);
+  await click(options, `${rowSelector} [data-control="down"]`);
+  assert.equal(await options.$eval(`${rowSelector} details`, (el) => el.open), true);
+  await click(options, '#reset');
+  const help = '.help[aria-describedby="configuration-help"]';
+  await options.$eval(help, (el) => el.focus());
+  assert.equal(await options.$eval('#configuration-help', (el) => el.hidden), false);
+  if (flavor === 'chrome') await options.keyboard.press('Escape');
+  else await options.$eval(help, (el) => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  assert.equal(await options.$eval('#configuration-help', (el) => el.hidden), true);
   const result = await preview('てすと');
   assert.deepEqual(words(result), ['共通', '第一', '第三', '第四', '第五', '第六', '第七', '第八', '第二']);
   assert.deepEqual(result[0], {
