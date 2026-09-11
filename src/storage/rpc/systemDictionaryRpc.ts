@@ -5,22 +5,33 @@ import { copyCandidate } from '../../core/skk/jisyo/candidate';
 import type { SystemDictionaryPreview } from './messages';
 import type { SystemDictionaryManager } from '../jisyo/SystemDictionaryManager';
 
-/** 設定変更は拡張機能のトップレベル画面に限定します。 */
+/** 辞書管理 RPC は許可した拡張機能のトップレベル画面に限定します。 */
 export function assertSystemSettingsSender(sender: unknown, extensionId: string, extensionRoot: string): void {
     if (!sender || typeof sender !== 'object') throw new Error('拡張機能の設定画面から操作してください。');
     const value = sender as { id?: unknown; url?: unknown; frameId?: unknown; tab?: { url?: unknown } };
     if (value.id !== extensionId || typeof value.url !== 'string' || (value.frameId !== undefined && value.frameId !== 0)) {
         throw new Error('拡張機能の設定画面から操作してください。');
     }
-    const allowed = ['options.html', 'popup.html'].map((path) => extensionRoot + path);
+    const allowed = ['options.html', 'popup.html', 'diagnostics.html'].map((path) => extensionRoot + path);
     const clean = (url: string) => url.split(/[?#]/)[0];
     if (!allowed.includes(clean(value.url)!) || (value.tab && (typeof value.tab.url !== 'string' || !allowed.includes(clean(value.tab.url)!)))) {
         throw new Error('拡張機能の設定画面から操作してください。');
     }
 }
 
+/** 候補診断からは初期化待機と表示に必要な読み取りだけを許可します。 */
+export function assertDiagnosticsReadOnly(message: Record<string, unknown>, sender: unknown, extensionId: string, extensionRoot: string): void {
+    const url = sender && typeof sender === 'object' && 'url' in sender ? sender.url : undefined;
+    if (typeof url !== 'string' || url.split(/[?#]/)[0] !== extensionRoot + 'diagnostics.html') return;
+    assertSystemSettingsSender(sender, extensionId, extensionRoot);
+    if (!['SKK_WAIT_READY', 'SKK_SYSTEM_STATUS', 'SKK_SYSTEM_PREVIEW'].includes(message.type as string)) {
+        throw new Error('候補診断画面では読み取り操作だけを使用できます。');
+    }
+}
+
 export async function handleSystemDictionaryRpc(manager: SystemDictionaryManager, message: Record<string, unknown>, sender: unknown, extensionId: string, extensionRoot: string, userStore?: IUserJisyoStorage): Promise<unknown> {
     assertSystemSettingsSender(sender, extensionId, extensionRoot);
+    assertDiagnosticsReadOnly(message, sender, extensionId, extensionRoot);
     switch (message.type) {
         case 'SKK_SYSTEM_PREVIEW': {
             if (typeof message.key !== 'string' || !message.key || message.key.length > 1024

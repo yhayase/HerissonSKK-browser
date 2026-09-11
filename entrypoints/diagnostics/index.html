@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>SKK 候補診断</title></head>
+<body><main>
+<h1>SKK 候補診断</h1>
+<p>保存済みで現在使用中の辞書構成について、候補の順序、出典、注釈、送り条件を読み取り専用で確認する画面です。設定画面で編集中の内容は表示しません。</p>
+<p id="notice" role="status" aria-live="polite">辞書を準備中…</p><p id="error" role="alert"></p>
+<section aria-labelledby="preview-title"><h2 id="preview-title">候補を確認</h2><p>システム辞書は保存された設定順で統合され、最上位の注釈を表示します。実際の変換では学習した候補が先頭になります。</p>
+<form id="preview-form"><fieldset id="diagnostic-controls" disabled><legend>読みと送り仮名</legend><div class="fields"><label>読み<input id="preview-key" value="かk" maxlength="1024" required></label><label>送り仮名<input id="preview-okuri" value="く" maxlength="1024"></label><label><input id="preview-all" type="checkbox">送り仮名の全条件を確認</label><button id="preview" type="submit">候補を取得</button></div></fieldset></form>
+<p>例：読み「かk」、送り仮名「く」。送りなしの読みは送り仮名を空にします。</p><p id="preview-status" role="status"></p><div class="columns"><div><h3>システム辞書の順序</h3><ol id="system-candidates"></ol></div><div><h3>学習を含む実際の順序</h3><ol id="effective-candidates"></ol></div></div></section>
+<p><button id="refresh" type="button">保存済み構成を再取得</button> <a href="/options.html">辞書設定に戻る</a></p>
+</main><script type="module" src="./main.ts"></script></body></html>
