@@ -1,6 +1,6 @@
 import './style.css';
 import { sendRuntimeMessage as rpc } from '@/src/storage/rpc/runtimeClient';
-import type { SkkRpcRequest, SystemDictionaryPreview, CandidateData } from '@/src/storage/rpc/messages';
+import type { SkkRpcRequest } from '@/src/storage/rpc/messages';
 import type { SystemDictionaryDefinition, SystemDictionaryStatus } from '@/src/storage/jisyo/SystemDictionaryConfiguration';
 import { SettingsDraft, variants, sizeLabel, validateLocalFile, publishSettings, startupMessage, requestCustomDictionaryPermission } from '@/src/settings/model';
 
@@ -10,7 +10,6 @@ const select = (id: string) => element<HTMLSelectElement>(id);
 const model = new SettingsDraft();
 let busy = false;
 let polling = false;
-let previewBusy = false;
 let requestSequence = 0;
 let receivedSequence = 0;
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -34,7 +33,6 @@ function controls(): void {
     const unavailable = busy || !model.canEdit;
     element<HTMLButtonElement>('refresh').disabled = busy;
     element('refresh').textContent = model.published ? '状態を再取得' : '初期化を再試行・状態を再取得';
-    element<HTMLButtonElement>('preview').disabled = previewBusy || !model.published;
     element<HTMLFieldSetElement>('draft-controls').disabled = unavailable;
     element<HTMLFieldSetElement>('import-controls').disabled = unavailable || model.dirty;
     element<HTMLButtonElement>('save').disabled = unavailable || !model.dirty || model.conflict;
@@ -215,29 +213,6 @@ element('import').onclick = () => {
     const old = model.saved?.dictionaries.find((d) => d.dictId === select('import-target').value);
     const dictionary: SystemDictionaryDefinition = { dictId: old?.dictId ?? `local-${crypto.randomUUID()}`, name, kind: 'local', format: select('import-format').value as 'text' | 'json', source: `local:${file.name}`, enabled: old?.enabled ?? true };
     void mutate({ type: 'SKK_SYSTEM_IMPORT', dictionary, bytes: [] }, file);
-};
-function candidates(id: string, values: CandidateData[]): void {
-    const list = element(id); list.replaceChildren();
-    if (!values.length) { list.append(node('li', '候補なし')); return; }
-    for (const candidate of values) {
-        const item = node('li', candidate.word);
-        item.append(node('p', `表示注釈：${candidate.annotation ?? 'なし'} / 送り条件：${candidate.okuri === undefined ? '指定なし' : candidate.okuri || '空文字'}`));
-        const sources = node('ul', '');
-        for (const source of candidate.sources ?? []) sources.append(node('li', `${source.kind === 'learned' ? '学習' : 'システム'}：${source.name ?? source.dictId ?? '名称なし'} / 注釈：${source.annotation ?? 'なし'}`));
-        item.append(sources); list.append(item);
-    }
-}
-input('preview-all').onchange = () => { input('preview-okuri').disabled = input('preview-all').checked; };
-element<HTMLFormElement>('preview-form').onsubmit = (event) => {
-    event.preventDefault(); if (previewBusy || !model.published) return;
-    previewBusy = true; element<HTMLButtonElement>('preview').disabled = true;
-    const key = input('preview-key').value; const okuri = input('preview-all').checked ? undefined : input('preview-okuri').value;
-    element('preview-status').textContent = '候補を取得中…';
-    void rpc<SystemDictionaryPreview>({ type: 'SKK_SYSTEM_PREVIEW', key, okuri }).then((result) => {
-        candidates('system-candidates', result.systemCandidates); candidates('effective-candidates', result.effectiveCandidates);
-        element('preview-status').textContent = `取得時点の候補：${result.key} / ${result.okuri === undefined ? '全条件' : `送り仮名「${result.okuri}」`}`;
-    }).catch((error) => { element('preview-status').textContent = `取得失敗：${errorText(error)}（前の結果を保持しています）`; })
-        .finally(() => { previewBusy = false; controls(); });
 };
 controls();
 void refresh().catch((error) => { element('notice').textContent = '構成を読み込めませんでした。状態を再取得してください。'; element('error').textContent = errorText(error); });

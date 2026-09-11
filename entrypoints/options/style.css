@@ -17,5 +17,6 @@ input[type=checkbox] { flex-shrink: 0; }
 #configuration-empty { padding: 12px; border: 1px dashed #94a3b8; border-radius: 7px; }
 @media(max-width: 650px) {
     .fields > label, .row label:has(select) { width: 100%; }
+    .fields > .source-field { flex: 0 1 auto; }
     .fields > button { align-self: flex-start; }
 }

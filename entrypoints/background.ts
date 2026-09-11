@@ -1,5 +1,5 @@
 import { SystemDictionaryManager } from '@/src/storage/jisyo/SystemDictionaryManager';
-import { handleSystemDictionaryRpc } from '@/src/storage/rpc/systemDictionaryRpc';
+import { assertDiagnosticsReadOnly, handleSystemDictionaryRpc } from '@/src/storage/rpc/systemDictionaryRpc';
 import { IndexedDbUserStore } from '@/src/storage/user-jisyo/IndexedDbUserStore';
 import { Candidate, copyCandidate } from '@/src/core/skk/jisyo/candidate';
 import type { SkkRpcRequest, CandidateData } from '@/src/storage/rpc/messages';
@@ -49,6 +49,7 @@ export default defineBackground(() => {
    * Dispatches RPC requests from Content Scripts.
    */
   async function handleRpc(message: SkkRpcRequest, _sender: any): Promise<any> {
+    assertDiagnosticsReadOnly(message, _sender, browser.runtime.id, browser.runtime.getURL('/'));
     if (message.type.startsWith('SKK_SYSTEM_')) {
       return handleSystemDictionaryRpc(dictionaryManager, message, _sender, browser.runtime.id, browser.runtime.getURL('/'), userStore);
     }

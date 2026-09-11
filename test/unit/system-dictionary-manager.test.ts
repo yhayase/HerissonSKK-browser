@@ -4,7 +4,7 @@ import { SystemDictionaryManager } from '../../src/storage/jisyo/SystemDictionar
 import { SYSTEM_DICTIONARY_CATALOG, DEFAULT_SYSTEM_DICTIONARIES, SYSTEM_OPERATION_ID, validateSystemDictionaries, type SystemDictionaryDefinition } from '../../src/storage/jisyo/SystemDictionaryConfiguration';
 import { IndexedDbJisyoStore } from '../../src/storage/jisyo/IndexedDbJisyoStore';
 import { Candidate } from '../../src/core/skk/jisyo/candidate';
-import { handleSystemDictionaryRpc } from '../../src/storage/rpc/systemDictionaryRpc';
+import { assertDiagnosticsReadOnly, handleSystemDictionaryRpc } from '../../src/storage/rpc/systemDictionaryRpc';
 
 const managers: SystemDictionaryManager[] = [];
 const names = new Set<string>();
@@ -27,6 +27,23 @@ afterEach(async () => {
 });
 
 describe('system dictionary configuration', () => {
+    it('候補診断は必要な読み取りだけを許可し、学習辞書の変更も拒否します', () => {
+        const root = 'chrome-extension://id/';
+        const diagnostics = { id: 'id', url: root + 'diagnostics.html?key=test#result', frameId: 0, tab: { url: root + 'diagnostics.html' } };
+        for (const type of ['SKK_WAIT_READY', 'SKK_SYSTEM_STATUS', 'SKK_SYSTEM_PREVIEW']) {
+            expect(() => assertDiagnosticsReadOnly({ type }, diagnostics, 'id', root)).not.toThrow();
+        }
+        for (const type of ['SKK_USER_SAVE', 'SKK_USER_REORDER', 'SKK_USER_DELETE', 'SKK_USER_CLEAR', 'SKK_USER_SAVE_ENTRIES', 'SKK_USER_SYNC_BROADCAST', 'SKK_USER_LOAD', 'SKK_JISYO_LOOKUP', 'SKK_FUTURE_MUTATION']) {
+            expect(() => assertDiagnosticsReadOnly({ type }, diagnostics, 'id', root)).toThrow('読み取り操作だけ');
+        }
+        for (const sender of [{ ...diagnostics, id: 'foreign' }, { ...diagnostics, frameId: 1 }, { ...diagnostics, tab: { url: 'https://site.test/' } }]) {
+            expect(() => assertDiagnosticsReadOnly({ type: 'SKK_SYSTEM_STATUS' }, sender, 'id', root)).toThrow('設定画面');
+        }
+        for (const url of [root + 'options.html', root + 'popup.html', 'https://site.test/']) {
+            expect(() => assertDiagnosticsReadOnly({ type: 'SKK_USER_CLEAR' }, { id: 'id', url }, 'id', root)).not.toThrow();
+        }
+    });
+
     it('基本辞書 M の公式テキスト版と JSON 版をカタログに掲載します', () => {
         expect(SYSTEM_DICTIONARY_CATALOG.filter((d) => d.kind === 'm')).toEqual([
             expect.objectContaining({ dictId: 'skk-jisyo-m', format: 'text', source: 'https://raw.githubusercontent.com/skk-dev/dict/master/SKK-JISYO.M' }),
@@ -250,7 +267,7 @@ describe('system dictionary configuration', () => {
         expect((await manager.status()).revision).toBe(0);
     });
 
-    it('rejects content script, foreign extension, subframe and forged settings URLs', async () => {
+    it('信頼できない送信元を拒否し、候補診断は読み取り操作に限定します', async () => {
         const { manager } = create();
         const request = { type: 'SKK_SYSTEM_CONFIGURE', dictionaries: [] };
         for (const sender of [
@@ -259,8 +276,20 @@ describe('system dictionary configuration', () => {
             { id: 'id', url: 'chrome-extension://id/options.html', frameId: 1 },
             { id: 'id', url: 'chrome-extension://id/options.html', tab: { url: 'https://site.test/' } },
             { id: 'id', url: 'chrome-extension://id/options.html.evil' },
+            { id: 'id', url: 'chrome-extension://id/diagnostics.html.evil' },
         ]) await expect(handleSystemDictionaryRpc(manager, request, sender, 'id', 'chrome-extension://id/')).rejects.toThrow();
         const status = await handleSystemDictionaryRpc(manager, { type: 'SKK_SYSTEM_STATUS' }, { id: 'id', url: 'chrome-extension://id/options.html', frameId: 0 }, 'id', 'chrome-extension://id/');
         expect(status).toHaveProperty('revision', 0);
+        const diagnostics = { id: 'id', url: 'chrome-extension://id/diagnostics.html', frameId: 0 };
+        await expect(handleSystemDictionaryRpc(manager, { type: 'SKK_SYSTEM_STATUS' }, diagnostics, 'id', 'chrome-extension://id/')).resolves.toHaveProperty('revision', 0);
+        for (const mutation of [
+            { type: 'SKK_SYSTEM_CONFIGURE', dictionaries: [] },
+            { type: 'SKK_SYSTEM_IMPORT' },
+            { type: 'SKK_SYSTEM_IMPORT_BEGIN' },
+            { type: 'SKK_SYSTEM_IMPORT_CHUNK' },
+            { type: 'SKK_SYSTEM_IMPORT_FINISH' },
+            { type: 'SKK_SYSTEM_IMPORT_CANCEL' },
+            { type: 'SKK_SYSTEM_UPDATE' },
+        ]) await expect(handleSystemDictionaryRpc(manager, mutation, diagnostics, 'id', 'chrome-extension://id/')).rejects.toThrow('読み取り操作だけ');
     });
 });

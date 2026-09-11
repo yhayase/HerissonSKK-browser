@@ -91,10 +91,10 @@ describe('候補の条件と出典', () => {
         expect(filtered.getRawCandidateList()[0]?.okuri).toBe('く');
     });
 
-    it('設定プレビューは同じシステム候補に学習順位を重ね、送り仮名で絞る', async () => {
+    it('候補診断は同じシステム候補に学習順位を重ね、送り仮名で絞る', async () => {
         const { manager, user, provider } = await setup();
         await provider.registerCandidate('かな', new Candidate('末尾'));
-        const preview = await handleSystemDictionaryRpc(manager, { type: 'SKK_SYSTEM_PREVIEW', key: 'かな', okuri: '' }, { id: 'ext', url: 'chrome-extension://ext/options.html' }, 'ext', 'chrome-extension://ext/', user) as SystemDictionaryPreview;
+        const preview = await handleSystemDictionaryRpc(manager, { type: 'SKK_SYSTEM_PREVIEW', key: 'かな', okuri: '' }, { id: 'ext', url: 'chrome-extension://ext/diagnostics.html' }, 'ext', 'chrome-extension://ext/', user) as SystemDictionaryPreview;
         expect(preview.systemCandidates[0]?.word).toBe('先');
         expect(preview.effectiveCandidates[0]?.word).toBe('末尾');
         expect(preview.effectiveCandidates[0]?.sources?.map((s) => s.kind)).toEqual(['learned', 'system']);

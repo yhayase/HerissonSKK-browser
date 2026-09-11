@@ -53,6 +53,7 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const url = `http://127.0.0.1:${server.address().port}/`;
 let browser;
 let options;
+let diagnostics;
 let extensionRoot;
 const navigate = async (page, url) => {
   if (flavor === 'firefox' && url.startsWith('moz-extension:')) {
@@ -80,10 +81,28 @@ const launch = async (offline = false) => {
   }
   options = await browser.newPage();
   await navigate(options, extensionRoot + 'options.html');
-  assert.equal(await options.evaluate(() => { const notice = document.querySelector('#notice').textContent; return !notice.includes('リビジョン 0') || (document.querySelector('#draft-controls').disabled && document.querySelector('#import-controls').disabled && document.querySelector('#preview').disabled); }), true);
+  assert.equal(await options.evaluate(() => { const notice = document.querySelector('#notice').textContent; return !notice.includes('リビジョン 0') || (document.querySelector('#draft-controls').disabled && document.querySelector('#import-controls').disabled); }), true);
   await options.evaluate(() => (globalThis.browser ?? chrome).runtime.sendMessage({ type: 'SKK_WAIT_READY' }));
   await click(options, '#refresh');
   await options.waitForFunction(() => /リビジョン [1-9]/.test(document.querySelector('#notice').textContent));
+  assert.equal(await options.$('#preview-form'), null, 'settings must not contain candidate preview controls');
+  const diagnosticsUrl = await options.$eval('#diagnostics-link', (link) => link.href);
+  assert.equal(diagnosticsUrl, extensionRoot + 'diagnostics.html');
+  diagnostics = null;
+};
+const openDiagnostics = async () => {
+  if (diagnostics && !diagnostics.isClosed()) return;
+  log(`[${flavor}] open actual diagnostics page`);
+  diagnostics = await browser.newPage();
+  log(`[${flavor}] diagnostics tab created`);
+  await navigate(diagnostics, extensionRoot + 'diagnostics.html');
+  log(`[${flavor}] diagnostics navigation completed`);
+  await diagnostics.waitForFunction(() => /リビジョン [1-9]/.test(document.querySelector('#notice').textContent) && !document.querySelector('#diagnostic-controls').disabled);
+  log(`[${flavor}] diagnostics persisted configuration ready`);
+  assert.equal(await diagnostics.title(), 'SKK 候補診断');
+  assert.match(await diagnostics.$eval('main > p', (paragraph) => paragraph.textContent), /保存済み.*読み取り専用/);
+  assert.equal(await diagnostics.$('[data-update], #save, #import, #add'), null, 'diagnostics must not expose mutation controls');
+  await front(options);
 };
 const rpc = (request) => options.evaluate(async (request) => {
   const response = await (globalThis.browser ?? chrome).runtime.sendMessage(request);
@@ -98,7 +117,12 @@ const assertConfigurationList = async (page = options) => {
   assert.equal(await page.$$eval('#draft-list > [data-dict-id] .metadata', (items) => items.length), configured.length);
 };
 const front = async (page) => flavor === 'firefox' ? page.evaluate(async () => browser.tabs.update((await browser.tabs.getCurrent()).id, { active: true })) : page.bringToFront();
-const click = async (page, selector) => flavor === 'firefox' ? page.$eval(selector, (el) => el.click()) : page.click(selector);
+const click = async (page, selector) => {
+  if (flavor === 'firefox') return page.$eval(selector, (el) => el.click());
+  // 非表示タブでは Puppeteer のクリック前の IntersectionObserver が進まないため、毎回対象を前面にします。
+  await page.bringToFront();
+  await page.click(selector);
+};
 const fill = async (page, selector, value) => {
   await page.$eval(selector, (el, value) => { el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); }, value);
 };
@@ -112,15 +136,23 @@ const saved = async (revision) => {
 };
 const save = async () => { const before = await status(); await click(options, '#save'); await saved(before.revision); };
 const preview = async (key, okuri = '', all = false) => {
-  await fill(options, '#preview-key', key); await fill(options, '#preview-okuri', okuri);
-  if (await options.$eval('#preview-all', (el) => el.checked) !== all) await click(options, '#preview-all');
-  await click(options, '#preview');
-  await options.waitForFunction(() => !document.querySelector('#preview').disabled && document.querySelector('#preview-status').textContent.startsWith('取得時点'));
-  return options.$$eval('#system-candidates > li', (items) => items.map((el) => ({
+  const firstPreview = !diagnostics || diagnostics.isClosed();
+  await openDiagnostics();
+  await front(diagnostics);
+  if (firstPreview) log(`[${flavor}] first diagnostics preview controls active`);
+  await fill(diagnostics, '#preview-key', key); await fill(diagnostics, '#preview-okuri', okuri);
+  if (await diagnostics.$eval('#preview-all', (el) => el.checked) !== all) await click(diagnostics, '#preview-all');
+  await click(diagnostics, '#preview');
+  if (firstPreview) log(`[${flavor}] first diagnostics preview submitted`);
+  await diagnostics.waitForFunction(() => !document.querySelector('#preview').disabled && document.querySelector('#preview-status').textContent.startsWith('取得時点'));
+  if (firstPreview) log(`[${flavor}] first diagnostics preview rendered`);
+  const result = await diagnostics.$$eval('#system-candidates > li', (items) => items.map((el) => ({
     word: el.firstChild.textContent,
     annotation: el.querySelector(':scope > p')?.textContent,
     sources: [...el.querySelectorAll(':scope > ul > li')].map((source) => source.textContent),
   })));
+  await front(options);
+  return result;
 };
 const importFile = async (name, file, format, target = '') => {
   await options.select('#import-target', target); await fill(options, '#import-name', name); await options.select('#import-format', format);
@@ -230,7 +262,8 @@ try {
     await startup.evaluate(async () => { window.dispatchEvent(new Event('pagehide')); await import(document.querySelector('script[type=module]').src + '?e2e-startup'); });
   }
   await startup.waitForFunction(() => document.querySelector('#notice').textContent.includes('初期'));
-  assert.equal(await startup.evaluate(() => ['draft-controls', 'import-controls', 'save', 'preview'].every((id) => document.getElementById(id).disabled)), true);
+  assert.equal(await startup.evaluate(() => ['draft-controls', 'import-controls', 'save'].every((id) => document.getElementById(id).disabled)), true);
+  assert.equal(await startup.$('#preview-form'), null);
   await click(startup, '#save'); assert.equal(await startup.evaluate(() => globalThis.__startupMutations), 0);
   await startup.evaluate(() => { globalThis.__startupReleased = true; }); await click(startup, '#refresh');
   await startup.waitForFunction(() => !document.querySelector('#draft-controls').disabled && document.querySelector('#draft-list [data-dict-id="skk-jisyo-s"]'));
@@ -241,6 +274,7 @@ try {
     assert.equal(await options.$eval('#add', (el) => el.disabled), kind === 'postal' && format === 'json');
   }
   for (const source of ['dict/SKK-JISYO.S', 'dict/SKK-JISYO.S.json']) {
+    log(`[${flavor}] switch bundled S to ${source}`);
     await options.select('#draft-list [data-dict-id="skk-jisyo-s"] select', source); await save();
     assert.equal((await status()).dictionaries[0].source, source);
   }
@@ -323,19 +357,23 @@ try {
   assert.ok((await preview('かk', 'く')).some((c) => c.word === '描'));
   assert.ok(!(await preview('かk', 'け')).some((c) => c.word === '描'));
   assert.ok((await preview('かk', '', true)).some((c) => c.word === '描'));
-  await click(options, '#preview-all');
+  await click(diagnostics, '#preview-all');
   await click(options, '#draft-list [data-dict-id="skk-jisyo-s"] [aria-label$="を下へ"]');
   await click(options, '#draft-list [data-dict-id="skk-jisyo-s"] [aria-label$="を下へ"]'); await save();
   assert.equal(words(await preview('にほん'))[0], '独自日本');
   await click(options, '#draft-list [data-dict-id="skk-jisyo-s"] [aria-label$="を上へ"]');
   await click(options, '#draft-list [data-dict-id="skk-jisyo-s"] [aria-label$="を上へ"]'); await save();
-  await preview('あくい'); assert.equal(await options.$$eval('#draft-list img, #system-candidates img', (els) => els.length), 0);
+  await preview('あくい');
+  assert.equal(await options.$$eval('#draft-list img', (els) => els.length), 0);
+  assert.equal(await diagnostics.$$eval('#system-candidates img', (els) => els.length), 0);
   if (flavor === 'firefox') await options.goto('about:blank');
   await options.setViewport({ width: 360, height: 800 });
-  if (flavor === 'firefox') { await navigate(options, extensionRoot + 'options.html'); await options.waitForFunction(() => !document.querySelector('#draft-controls').disabled); await preview('あくい'); }
+  if (flavor === 'firefox') { await navigate(options, extensionRoot + 'options.html'); await options.waitForFunction(() => !document.querySelector('#draft-controls').disabled); }
   assert.equal(await options.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  const customSourceGap = await options.evaluate(() => document.querySelector('#add-custom').getBoundingClientRect().top - document.querySelector('#custom-source').getBoundingClientRect().bottom);
+  assert.ok(customSourceGap >= 0 && customSourceGap <= 40, `narrow custom URL field/button gap: ${customSourceGap}px`);
   if (flavor === 'chrome') await options.screenshot({ path: path.join(output, 'narrow-options.png'), fullPage: true });
-  else fs.writeFileSync(path.join(output, 'narrow-options.json'), JSON.stringify(await options.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth, text: document.body.innerText })), null, 2));
+  else fs.writeFileSync(path.join(output, 'narrow-options.json'), JSON.stringify({ ...await options.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth, text: document.body.innerText })), customSourceGap }, null, 2));
   if (flavor === 'firefox') await options.goto('about:blank');
   await options.setViewport({ width: 1100, height: 850 });
   if (flavor === 'firefox') { await navigate(options, extensionRoot + 'options.html'); await options.waitForFunction(() => !document.querySelector('#draft-controls').disabled); }
@@ -360,7 +398,7 @@ try {
   await page.waitForFunction(() => document.querySelector('#input-test').value === '第二');
   await convert(other); assert.ok((await hud(other)).includes('第二')); await cancel(other);
   await front(options); await preview('てすと');
-  assert.equal(await options.$eval('#effective-candidates > li', (el) => el.firstChild.textContent), '第二');
+  assert.equal(await diagnostics.$eval('#effective-candidates > li', (el) => el.firstChild.textContent), '第二');
   await convert(other);
   for (let i = 0; i < 3; i++) await other.keyboard.press(' ');
   await other.waitForFunction(() => document.querySelector('#skk-browser-ext-hud-root').shadowRoot.textContent.includes('第三'));
@@ -423,6 +461,14 @@ try {
     assert.equal((await status()).dictionaries.find((d) => d.kind === kind).state, 'ready');
   }
   await transport('restore');
+  log(`[${flavor}] diagnostics sender is read-only`);
+  const diagnosticRevision = (await status()).revision;
+  await click(diagnostics, '#refresh');
+  await diagnostics.waitForFunction((revision) => !document.querySelector('#diagnostic-controls').disabled && document.querySelector('#notice').textContent.includes(`リビジョン ${revision}（`), {}, diagnosticRevision);
+  const diagnosticMutations = ['SKK_SYSTEM_CONFIGURE', 'SKK_SYSTEM_IMPORT', 'SKK_SYSTEM_IMPORT_BEGIN', 'SKK_SYSTEM_IMPORT_CHUNK', 'SKK_SYSTEM_IMPORT_FINISH', 'SKK_SYSTEM_IMPORT_CANCEL', 'SKK_SYSTEM_UPDATE', 'SKK_USER_SAVE', 'SKK_USER_REORDER', 'SKK_USER_DELETE', 'SKK_USER_CLEAR', 'SKK_USER_SAVE_ENTRIES', 'SKK_USER_SYNC_BROADCAST'];
+  const diagnosticResponses = await diagnostics.evaluate(async (types) => Promise.all(types.map((type) => (globalThis.browser ?? chrome).runtime.sendMessage({ type }))), diagnosticMutations);
+  assert.equal(diagnosticResponses.length, diagnosticMutations.length);
+  for (const response of diagnosticResponses) { assert.equal(response.ok, false); assert.match(response.error, /読み取り操作だけ/); }
   log(`[${flavor}] content-script management RPC is denied`);
   const requests = ['SKK_SYSTEM_STATUS', 'SKK_SYSTEM_PREVIEW', 'SKK_SYSTEM_CONFIGURE', 'SKK_SYSTEM_IMPORT', 'SKK_SYSTEM_UPDATE'];
   const probe = `Promise.all(${JSON.stringify(requests)}.map(type => (globalThis.browser ?? chrome).runtime.sendMessage({ type })))`;
@@ -478,8 +524,21 @@ try {
   }
   await options.waitForSelector('#draft-list [data-dict-id]');
   assert.equal(await options.title(), 'SKK 辞書設定');
-  if (flavor === 'chrome') await options.screenshot({ path: path.join(output, 'options.png'), fullPage: true });
-  else { fs.writeFileSync(path.join(output, 'options.html'), await options.content()); await page.screenshot({ path: path.join(output, 'input.png') }); }
+  if (flavor === 'chrome') {
+    await options.screenshot({ path: path.join(output, 'options.png'), fullPage: true });
+    await diagnostics.screenshot({ path: path.join(output, 'diagnostics.png'), fullPage: true });
+  } else {
+    fs.writeFileSync(path.join(output, 'options.html'), await options.content());
+    fs.writeFileSync(path.join(output, 'diagnostics-proof.json'), JSON.stringify(await diagnostics.evaluate(() => ({
+      url: location.href, title: document.title, purpose: document.querySelector('main > p')?.textContent,
+      notice: document.querySelector('#notice')?.textContent, hasPreviewForm: !!document.querySelector('#preview-form'),
+      mutationControls: document.querySelectorAll('[data-update], #save, #import, #add').length,
+      previewStatus: document.querySelector('#preview-status')?.textContent,
+      systemCandidates: [...document.querySelectorAll('#system-candidates > li')].map((item) => item.textContent),
+      effectiveCandidates: [...document.querySelectorAll('#effective-candidates > li')].map((item) => item.textContent),
+    })), null, 2));
+    await page.screenshot({ path: path.join(output, 'input.png') });
+  }
   log(`[${flavor}] every dictionary is removable and an empty configuration persists`);
   const configuredCount = (await status()).dictionaries.length;
   for (let index = 0; index < configuredCount; index++) await click(options, '#draft-list [aria-label$="を構成から削除"]');
@@ -489,7 +548,7 @@ try {
   assert.deepEqual(empty.dictionaries, []);
   await assertConfigurationList();
   assert.deepEqual(words(await preview('てすと')), ['候補なし']);
-  assert.equal(await options.$$eval('#effective-candidates > li', (items) => items.some((item) => item.firstChild.textContent === '第二')), true);
+  assert.equal(await diagnostics.$$eval('#effective-candidates > li', (items) => items.some((item) => item.firstChild.textContent === '第二')), true);
   await browser.close(); browser = null;
   await launch(true);
   assert.equal((await status()).revision, empty.revision);
@@ -497,7 +556,7 @@ try {
   await assertConfigurationList();
   assert.equal(await options.$eval('#configuration-empty', (el) => el.hidden), false);
   assert.deepEqual(words(await preview('てすと')), ['候補なし']);
-  assert.equal(await options.$$eval('#effective-candidates > li', (items) => items.some((item) => item.firstChild.textContent === '第二')), true);
+  assert.equal(await diagnostics.$$eval('#effective-candidates > li', (items) => items.some((item) => item.firstChild.textContent === '第二')), true);
   await options.select('#kind', 'l'); await options.select('#format', 'json'); await click(options, '#add'); await save();
   assert.ok(words(await preview('てすと')).includes('遠隔再試行'));
   const restored = await status();
