@@ -111,7 +111,7 @@ function detectFormat(buffer: Uint8Array, definition: DictionaryDefinition): Exc
     return "text";
 }
 
-function parseDictionary(buffer: Uint8Array, definition: DictionaryDefinition): Map<string, Candidate[]> {
+export function parseDictionary(buffer: Uint8Array, definition: DictionaryDefinition): Map<string, Candidate[]> {
     const format = detectFormat(buffer, definition);
     if (format === "json") {
         const document = parseJsonJisyo(decodeUtf8Json(buffer));

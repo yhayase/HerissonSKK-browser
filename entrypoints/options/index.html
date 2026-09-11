@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>SKK 辞書設定</title><meta name="manifest.open_in_tab" content="true"></head>
+<body class="settings"><main>
+<h1>SKK 辞書設定</h1>
+
+<p id="notice" role="status" aria-live="polite"></p><p id="error" role="alert"></p>
+<section aria-labelledby="configuration-title"><h2 id="configuration-title">辞書の構成 <span class="hint"><button type="button" class="help" aria-label="辞書の構成の説明" aria-describedby="configuration-help">?</button><span id="configuration-help" role="tooltip" hidden>上から優先します。変更は保存後に全タブへ反映されます。無効化・削除しても保存済みの辞書データと学習は保持します。</span></span></h2><p id="operation" role="status"></p><p id="draft-state" role="status"></p>
+<fieldset id="draft-controls"><legend class="sr-only">辞書の順序・形式・有効状態</legend><p id="configuration-empty" hidden>辞書なし</p><ol id="draft-list"></ol>
+<h3>カタログから追加 <span class="hint"><button type="button" class="help" aria-label="カタログから追加の説明" aria-describedby="catalog-help">?</button><span id="catalog-help" role="tooltip" hidden>配布されている形式を選択します。郵便番号辞書はテキスト形式のみです。</span></span></h3><div class="fields"><label>辞書<select id="kind"><option value="s">基本辞書 S</option><option value="m">基本辞書 M</option><option value="l">基本辞書 L</option><option value="person">人名辞書</option><option value="place">地名辞書</option><option value="postal">郵便番号辞書</option></select></label><label>形式<select id="format"><option value="text">テキスト</option><option value="json">JSON</option></select></label><label>取得元<select id="source"></select></label><button id="add" type="button">追加</button></div>
+
+<h3>URLから追加 <span class="hint"><button type="button" class="help" aria-label="URLから追加の説明" aria-describedby="url-help">?</button><span id="url-help" role="tooltip" hidden>HTTP／HTTPSの直接取得URLを指定します。認証情報・ワイルドカードは使えません。必要なアクセス許可は保存時に確認します。</span></span></h3><div class="fields"><label>辞書名<input id="custom-name" maxlength="200" placeholder="共有辞書"></label><label>形式<select id="custom-format"><option value="text">テキスト</option><option value="json">JSON</option></select></label><label class="source-field">取得元 URL<input id="custom-source" type="url" maxlength="1000" placeholder="https://example.com/SKK-JISYO.example"></label><button id="add-custom" type="button">追加</button></div>
+
+<div class="save-actions"><button id="save" type="button">保存</button><button id="reset" type="button">変更を破棄</button></div>
+</fieldset><button id="refresh" type="button">再取得</button></section>
+<section aria-labelledby="import-title"><h2 id="import-title">ローカル辞書のインポート <span class="hint"><button type="button" class="help" aria-label="ローカル辞書のインポートの説明" aria-describedby="import-help">?</button><span id="import-help" role="tooltip" hidden>実行後、直ちに反映します。構成の編集は先に保存または破棄してください。上限64 MiB。形式は明示して選択します。</span></span></h2><p id="import-state" role="status"></p>
+<fieldset id="import-controls"><legend class="sr-only">ファイルと形式</legend><div class="fields"><label>対象<select id="import-target"><option value="">新しい辞書</option></select></label><label>辞書名<input id="import-name" maxlength="200" placeholder="個人用辞書"></label><label>形式<select id="import-format"><option value="text">テキスト</option><option value="json">JSON</option></select></label><label>ファイル<input id="import-file" type="file"></label><button id="import" type="button">インポート（即時）</button></div></fieldset>
+<p id="file-size"></p></section>
+
+<p><a id="diagnostics-link" href="/diagnostics.html">候補診断</a></p>
+</main><script type="module" src="./main.ts"></script></body></html>

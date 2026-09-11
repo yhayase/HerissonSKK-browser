@@ -1,0 +1,59 @@
+:root { font-family: system-ui, sans-serif; color: #1e293b; background: #f3f6fa; line-height: 1.65; color-scheme: light; }
+body { margin: 0; } main { max-width: 1050px; margin: auto; padding: 24px; } h1 { margin-top: 0; } section { background: white; border: 1px solid #cbd5e1; border-radius: 10px; padding: 20px; margin: 20px 0; } h2 { margin-top: 0; font-size: 1.25rem; } fieldset { border: 0; padding: 0; min-width: 0; } legend { font-weight: bold; } li { margin: 12px 0; overflow-wrap: anywhere; } .fields, .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; } label { display: flex; flex-direction: column; gap: 4px; } .row label, label:has(input[type=checkbox]) { flex-direction: row; align-items: center; } input, select, button { font: inherit; max-width: 100%; box-sizing: border-box; } input, select { padding: 6px; } button { padding: 7px 12px; border: 1px solid #64748b; border-radius: 5px; background: #f1f5f9; color: #0f172a; cursor: pointer; margin: 3px; } button:disabled { opacity: .5; cursor: default; } :focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; } #save { background: #1d4ed8; color: white; } #error { color: #a11414; white-space: pre-wrap; } .metadata { font-size: .9rem; white-space: pre-wrap; overflow-wrap: anywhere; } .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; } @media(max-width: 650px) { main { padding: 12px; } section { padding: 12px; } .columns { grid-template-columns: 1fr; } .fields { align-items: stretch; flex-direction: column; } }
+
+*, *::before, *::after { box-sizing: border-box; }
+main, section, .fields, .row, .columns > *, label { min-width: 0; }
+label { max-width: 100%; }
+input, select { min-width: 0; }
+.row label:has(select) { flex: 1 1 280px; flex-direction: column; align-items: stretch; }
+.row .custom-name { flex: 1 1 180px; flex-direction: column; align-items: stretch; }
+.row .custom-source, .source-field { flex: 2 1 360px; flex-direction: column; align-items: stretch; }
+.row select, .fields select, .fields input:not([type=checkbox]) { width: 100%; }
+input[type=checkbox] { flex-shrink: 0; }
+#draft-list { padding-left: 0; list-style-position: inside; }
+#draft-list > li { padding: 14px; border: 1px solid #cbd5e1; border-radius: 7px; }
+#draft-list > li::marker { font-weight: bold; }
+#draft-list .metadata { margin-bottom: 8px; }
+#configuration-empty { padding: 12px; border: 1px dashed #94a3b8; border-radius: 7px; }
+@media(max-width: 650px) {
+    .fields > label, .row label:has(select) { width: 100%; }
+    .fields > .source-field { flex: 0 1 auto; }
+    .fields > button { align-self: flex-start; }
+}
+
+/* 設定画面は一覧性を優先し、補足情報は必要なときだけ表示します。 */
+.settings { font-size: 14px; line-height: 1.5; }
+.settings main { max-width: 1200px; padding: 20px; }
+.settings h1 { font-size: 1.4rem; margin-bottom: 12px; }
+.settings h2 { font-size: 1.1rem; margin-bottom: 12px; }
+.settings h3 { font-size: .95rem; margin: 18px 0 8px; }
+.settings section { margin: 14px 0; padding: 14px; border-radius: 5px; }
+.settings p:empty { display: none; }
+.settings button { padding: 4px 9px; margin: 0; }
+.settings input, .settings select { padding: 4px 6px; }
+.settings .fields, .settings .row { gap: 8px; }
+.settings #draft-list { margin: 0; counter-reset: dictionary; list-style: none; }
+.settings #draft-list > li { margin: 0; padding: 9px 0; border: 0; border-bottom: 1px solid #e2e8f0; border-radius: 0; }
+.settings .row { align-items: center; }
+.settings .row::before { counter-increment: dictionary; content: counter(dictionary); width: 1.3em; color: #64748b; font-variant-numeric: tabular-nums; }
+.settings .dictionary-name { min-width: 130px; }
+.settings .row .custom-name { flex: 1 1 140px; }
+.settings .row .custom-source { flex: 2 1 260px; }
+.settings .row label:has(select) { flex: 1 1 180px; max-width: 300px; }
+.settings .row-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+.settings button[aria-disabled=true] { opacity: .45; }
+.settings details { margin: 3px 0 0 2em; font-size: .85rem; }
+.settings summary { cursor: pointer; width: fit-content; color: #475569; }
+.settings .metadata { margin: 6px 0; font-size: inherit; }
+.settings .save-actions { display: flex; gap: 8px; margin: 16px 0 8px; }
+.settings #draft-state { color: #92400e; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.hint { position: relative; display: inline-flex; align-items: center; vertical-align: middle; font-size: 13px; font-weight: normal; }
+.settings .help { border-radius: 50%; width: 22px; height: 22px; padding: 0; color: #475569; background: transparent; }
+[role=tooltip] { position: fixed; z-index: 2; width: min(320px, calc(100vw - 24px)); padding: 9px 12px; border-radius: 4px; background: #1e293b; color: white; box-shadow: 0 3px 10px #0003; font-weight: normal; }
+@media(max-width: 650px) {
+    .settings main { padding: 12px; }
+    .settings .row-actions { margin-left: 0; }
+    .settings .row .custom-source, .settings .row .custom-name, .settings .row label:has(select) { flex-basis: auto; max-width: none; }
+    .settings .fields > .hint { align-self: flex-end; }
+}

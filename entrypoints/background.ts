@@ -1,51 +1,19 @@
-import { IndexedDbJisyoStore } from '@/src/storage/jisyo/IndexedDbJisyoStore';
+import { SystemDictionaryManager } from '@/src/storage/jisyo/SystemDictionaryManager';
+import { assertDiagnosticsReadOnly, handleSystemDictionaryRpc } from '@/src/storage/rpc/systemDictionaryRpc';
 import { IndexedDbUserStore } from '@/src/storage/user-jisyo/IndexedDbUserStore';
-import { DictionaryLoader, type DictionaryDefinition } from '@/src/storage/jisyo/DictionaryLoader';
-import { DEFAULT_STARTER_DICTIONARY_ID } from '@/src/storage/indexedDbSchema';
-import { Candidate } from '@/src/core/skk/jisyo/candidate';
+import { Candidate, copyCandidate } from '@/src/core/skk/jisyo/candidate';
 import type { SkkRpcRequest, CandidateData } from '@/src/storage/rpc/messages';
 import type { IUserJisyoSyncEvent } from '@/src/core/skk/jisyo/CompositeJisyoProvider';
-
-const SYSTEM_DICTIONARIES: readonly DictionaryDefinition[] = [
-  {
-    dictId: DEFAULT_STARTER_DICTIONARY_ID,
-    dictPath: 'dict/SKK-JISYO.S.json',
-    version: 'official-s-729e562f963e',
-    format: 'json',
-  },
-];
 
 export default defineBackground(() => {
   console.log('[SKK Background] Service worker initialized on extension origin:', browser.runtime.id);
 
-  const systemStore = new IndexedDbJisyoStore({
-    dictionaryIds: SYSTEM_DICTIONARIES.map((dictionary) => dictionary.dictId),
-  });
+  const dictionaryManager = new SystemDictionaryManager();
+  const systemStore = dictionaryManager.store;
   const userStore = new IndexedDbUserStore();
 
-  let initPromise: Promise<void> | null = null;
-
   function ensureDictionaryReady(): Promise<void> {
-    if (!initPromise) {
-      initPromise = DictionaryLoader.ensureDictionaries(systemStore, SYSTEM_DICTIONARIES)
-        .then((results) => {
-          const count = results.reduce((sum, result) => sum + result.entryCount, 0);
-          console.log(`[SKK Background] System dictionaries ready (${count} entries).`);
-        })
-        .catch(async (err) => {
-          console.error('[SKK Background] Failed to load starter dictionary:', err);
-          initPromise = null;
-          const active = await Promise.all(
-            SYSTEM_DICTIONARIES.map((dictionary) => systemStore.getActiveDictionary(dictionary.dictId))
-          );
-          if (active.some((dictionary) => dictionary !== undefined)) {
-            console.warn('[SKK Background] Continuing with the previously active system dictionary.');
-            return;
-          }
-          throw err;
-        });
-    }
-    return initPromise;
+    return dictionaryManager.initialize();
   }
 
   // Initialize dictionary on extension install or update
@@ -81,6 +49,10 @@ export default defineBackground(() => {
    * Dispatches RPC requests from Content Scripts.
    */
   async function handleRpc(message: SkkRpcRequest, _sender: any): Promise<any> {
+    assertDiagnosticsReadOnly(message, _sender, browser.runtime.id, browser.runtime.getURL('/'));
+    if (message.type.startsWith('SKK_SYSTEM_')) {
+      return handleSystemDictionaryRpc(dictionaryManager, message, _sender, browser.runtime.id, browser.runtime.getURL('/'), userStore);
+    }
     switch (message.type) {
       case 'SKK_WAIT_READY': {
         await ensureDictionaryReady();
@@ -93,10 +65,7 @@ export default defineBackground(() => {
         if (!entry) return null;
         return {
           midashigo: entry.getMidashigo(),
-          candidates: entry.getCandidateList().map((c) => ({
-            word: c.word,
-            annotation: c.annotation,
-          })),
+          candidates: entry.getCandidateList().map(copyCandidate),
         };
       }
 
@@ -105,10 +74,7 @@ export default defineBackground(() => {
         const entries = await systemStore.lookupPrefix(message.prefix, message.limit);
         return entries.map((e) => ({
           midashigo: e.getMidashigo(),
-          candidates: e.getCandidateList().map((c) => ({
-            word: c.word,
-            annotation: c.annotation,
-          })),
+          candidates: e.getCandidateList().map(copyCandidate),
         }));
       }
 
@@ -116,16 +82,13 @@ export default defineBackground(() => {
         const entriesMap = await userStore.loadUserEntries();
         const result: Record<string, CandidateData[]> = {};
         for (const [key, candidates] of entriesMap.entries()) {
-          result[key] = candidates.map((c) => ({
-            word: c.word,
-            annotation: c.annotation,
-          }));
+          result[key] = candidates.map(copyCandidate);
         }
         return result;
       }
 
       case 'SKK_USER_SAVE': {
-        const cand = new Candidate(message.candidate.word, message.candidate.annotation);
+        const cand = copyCandidate(message.candidate);
         return await userStore.saveCandidate(message.key, cand);
       }
 
@@ -136,7 +99,7 @@ export default defineBackground(() => {
         }
         const cand =
           typeof target === 'object'
-            ? new Candidate(target.word, target.annotation)
+            ? copyCandidate(target)
             : target;
         const success = await userStore.reorderCandidate(message.key, cand);
         if (success) {
@@ -154,7 +117,7 @@ export default defineBackground(() => {
       }
 
       case 'SKK_USER_DELETE': {
-        const cand = new Candidate(message.candidate.word, message.candidate.annotation);
+        const cand = copyCandidate(message.candidate);
         return await userStore.deleteCandidate(message.key, cand);
       }
 
@@ -174,7 +137,7 @@ export default defineBackground(() => {
         for (const [key, cands] of Object.entries(message.entries)) {
           map.set(
             key,
-            cands.map((c) => new Candidate(c.word, c.annotation))
+            cands.map((c) => copyCandidate(c))
           );
         }
         const success = userStore.saveUserEntries ? await userStore.saveUserEntries(map) : false;
@@ -199,7 +162,7 @@ export default defineBackground(() => {
 
   // Register onMessage handler using the standard async response pattern
   browser.runtime.onMessage.addListener((message: any, sender: any, sendResponse: (res: any) => void) => {
-    if (!message || typeof message !== 'object' || !message.type || !message.type.startsWith('SKK_')) {
+    if (!message || typeof message !== 'object' || typeof message.type !== 'string' || !message.type.startsWith('SKK_')) {
       return false; // Not an SKK RPC message, do not handle
     }
 

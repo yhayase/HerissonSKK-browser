@@ -1,5 +1,5 @@
 import type { IUserJisyoStorage } from "../../core/skk/jisyo/IJisyoStorage";
-import { Candidate } from "../../core/skk/jisyo/candidate";
+import { Candidate, copyCandidate, candidateIdentity } from "../../core/skk/jisyo/candidate";
 import type { CandidateData } from "../rpc/messages";
 import { isRuntimeAvailable, sendRuntimeMessage, type IRuntimeClient } from "../rpc/runtimeClient";
 
@@ -39,8 +39,8 @@ class InMemoryUserStoreFallback implements IUserJisyoStorage {
 
     async saveCandidate(key: string, candidate: Candidate): Promise<boolean> {
         const list = this.map.get(key) ?? [];
-        const filtered = list.filter((c) => c.word !== candidate.word);
-        filtered.unshift(new Candidate(candidate.word, candidate.annotation));
+        const filtered = list.filter((c) => candidateIdentity(c) !== candidateIdentity(candidate));
+        filtered.unshift(copyCandidate(candidate));
         this.map.set(key, filtered);
         return true;
     }
@@ -57,7 +57,7 @@ class InMemoryUserStoreFallback implements IUserJisyoStorage {
             }
         } else {
             const targetWord = typeof target === "string" ? target : target.word;
-            index = list.findIndex((c) => c.word === targetWord);
+            index = list.findIndex((c) => c.word === targetWord && (typeof target === "string" || candidateIdentity(c) === candidateIdentity(target)));
         }
         if (index === -1) {
             return false;
@@ -72,7 +72,7 @@ class InMemoryUserStoreFallback implements IUserJisyoStorage {
     async deleteCandidate(key: string, candidate: Candidate): Promise<boolean> {
         const list = this.map.get(key);
         if (!list) return false;
-        const filtered = list.filter((c) => c.word !== candidate.word);
+        const filtered = list.filter((c) => candidateIdentity(c) !== candidateIdentity(candidate));
         if (filtered.length === 0) {
             this.map.delete(key);
         } else {
@@ -140,7 +140,7 @@ export class RemoteUserStore implements IUserJisyoStorage {
                     if (Array.isArray(cands)) {
                         result.set(
                             key,
-                            cands.map((c) => new Candidate(c.word, c.annotation))
+                            cands.map((c) => copyCandidate(c))
                         );
                     }
                 }
@@ -164,7 +164,7 @@ export class RemoteUserStore implements IUserJisyoStorage {
             const success = await this.callRpc<boolean>({
                 type: "SKK_USER_SAVE",
                 key,
-                candidate: { word: candidate.word, annotation: candidate.annotation },
+                candidate: copyCandidate(candidate),
                 senderId: this.senderId,
             });
             return Boolean(success);
@@ -186,7 +186,7 @@ export class RemoteUserStore implements IUserJisyoStorage {
         try {
             const candidateData =
                 typeof target === "object"
-                    ? { word: target.word, annotation: target.annotation }
+                    ? copyCandidate(target)
                     : typeof target === "string"
                     ? { word: target }
                     : undefined;
@@ -218,7 +218,7 @@ export class RemoteUserStore implements IUserJisyoStorage {
             const success = await this.callRpc<boolean>({
                 type: "SKK_USER_DELETE",
                 key,
-                candidate: { word: candidate.word, annotation: candidate.annotation },
+                candidate: copyCandidate(candidate),
                 senderId: this.senderId,
             });
             return Boolean(success);
@@ -241,7 +241,7 @@ export class RemoteUserStore implements IUserJisyoStorage {
         try {
             const obj: Record<string, CandidateData[]> = {};
             for (const [key, list] of entries.entries()) {
-                obj[key] = list.map((c) => ({ word: c.word, annotation: c.annotation }));
+                obj[key] = list.map((c) => (copyCandidate(c)));
             }
             const success = await this.callRpc<boolean>({
                 type: "SKK_USER_SAVE_ENTRIES",

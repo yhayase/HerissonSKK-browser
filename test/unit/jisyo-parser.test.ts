@@ -576,3 +576,35 @@ describe("JisyoParser", () => {
         });
     });
 });
+
+describe('角括弧の候補と送り仮名ブロック', () => {
+    it.each(['かな', 'おおk'])('文字通りの角括弧を隣接候補とともに保持する: %s', (key) => {
+        const parsed = parseJisyoLine(`${key} /[abc]/次/]/最後/`)!;
+        expect(parsed.candidates.map((c) => [c.word, c.okuri])).toEqual([
+            ['[abc]', undefined], ['次', undefined], [']', undefined], ['最後', undefined],
+        ]);
+    });
+
+    it.each(['かな /[く/次/]/', 'おおk /[く/次/', 'おおk /[き//]/次/', 'おおk /[む/次/]/'])('不完全または見出しと合わないブロックを文字列として扱う: %s', (line) => {
+        const parsed = parseJisyoLine(line)!;
+        expect(parsed.candidates.every((c) => c.okuri === undefined)).toBe(true);
+        expect(parsed.candidates[0]?.word).toMatch(/^\[/);
+    });
+
+    it('正しいブロックだけに条件を付け、前後の通常候補を保持する', () => {
+        const parsed = parseJisyoLine('おおk /前/[く/多/次/]/中/[き/大/]/後/]/')!;
+        expect(parsed.candidates.map((c) => [c.word, c.okuri])).toEqual([
+            ['前', undefined], ['多', 'く'], ['次', 'く'], ['中', undefined], ['大', 'き'], ['後', undefined], [']', undefined],
+        ]);
+    });
+
+    it.each(['かな', 'おおk'])('構文と曖昧な文字列候補をエスケープして往復する: %s', (key) => {
+        const candidates = [new Candidate('[abc]'), new Candidate('次'), new Candidate('[く'), new Candidate('多'), new Candidate(']'), new Candidate('最後')];
+        expect(parseJisyoLine(formatJisyoLine(key, candidates))?.candidates).toEqual(candidates);
+    });
+
+    it('本物のブロック内にある文字列の角括弧も往復する', () => {
+        const candidates = [new Candidate('[く', '注釈', { okuri: 'く' }), new Candidate(']', undefined, { okuri: 'く' }), new Candidate('次')];
+        expect(parseJisyoLine(formatJisyoLine('おおk', candidates))?.candidates).toEqual(candidates);
+    });
+});
