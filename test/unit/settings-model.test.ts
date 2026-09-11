@@ -1,11 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SettingsDraft, variants, validateLocalFile, definitions, publishSettings, startupMessage } from '../../src/settings/model';
-import { SYSTEM_DICTIONARY_CATALOG, SYSTEM_OPERATION_ID, type SystemDictionaryStatus } from '../../src/storage/jisyo/SystemDictionaryConfiguration';
+import { SettingsDraft, variants, validateLocalFile, definitions, publishSettings, startupMessage, customDictionaryPermissionOrigins, requestCustomDictionaryPermission } from '../../src/settings/model';
+import { SYSTEM_DICTIONARY_CATALOG, SYSTEM_OPERATION_ID, type SystemDictionaryDefinition, type SystemDictionaryStatus } from '../../src/storage/jisyo/SystemDictionaryConfiguration';
 function status(revision = 1): SystemDictionaryStatus {
     return { revision, dictionaries: [
         { ...SYSTEM_DICTIONARY_CATALOG[0]!, state: 'ready', version: 'hash' },
         { ...SYSTEM_DICTIONARY_CATALOG.find((d) => d.kind === 'person')!, enabled: true, state: 'ready' },
     ], catalog: [...SYSTEM_DICTIONARY_CATALOG], operation: { dictId: SYSTEM_OPERATION_ID, state: 'idle' } };
+}
+const customDictionary: SystemDictionaryDefinition = {
+    dictId: 'custom-shared', name: '共有辞書', kind: 'custom', format: 'text', source: 'https://dictionary.example/first.txt', enabled: true,
+};
+function statusWithCustom(revision = 1): SystemDictionaryStatus {
+    const result = status(revision);
+    result.dictionaries.push({ ...customDictionary, state: 'ready', version: 'custom-hash' });
+    return result;
 }
 describe('設定画面の編集状態', () => {
     it('ポーリングで未保存の順序と有効状態を置き換えません', () => {
@@ -59,6 +67,76 @@ describe('形式とファイルの選択', () => {
         expect(() => validateLocalFile(64 * 1024 * 1024 + 1)).toThrow();
         expect(() => validateLocalFile(64 * 1024 * 1024)).not.toThrow();
         expect(() => validateLocalFile(1)).not.toThrow();
+    });
+});
+
+describe('カスタム辞書のアクセス許可', () => {
+    it('URL を取得元単位の権限へ変換し、同じ取得元をまとめます', () => {
+        expect(customDictionaryPermissionOrigins([
+            'https://example.test/first.txt',
+            'https://example.test:443/second.json?version=2',
+            'http://127.0.0.1:8123/dictionary',
+        ])).toEqual(['https://example.test/*', 'http://127.0.0.1/*']);
+    });
+    it('HTTP(S) 以外と埋め込み認証情報を権限要求前に拒否します', async () => {
+        const permissions = { request: vi.fn().mockResolvedValue(true) };
+        for (const source of [
+            'file:///tmp/dict', 'data:text/plain,dictionary', 'https://user:secret@example.test/dict',
+            'https://*/dictionary', 'https://*.example.test/dictionary', 'https://%2A.example.test/dictionary',
+        ]) {
+            await expect(requestCustomDictionaryPermission([source], permissions)).rejects.toThrow();
+        }
+        expect(permissions.request).not.toHaveBeenCalled();
+    });
+    it('必要な取得元だけを要求し、拒否後も同じ操作を再試行できます', async () => {
+        const permissions = { request: vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true) };
+        await expect(requestCustomDictionaryPermission(['https://dictionary.example/path'], permissions)).rejects.toThrow('許可されませんでした');
+        await expect(requestCustomDictionaryPermission(['https://dictionary.example/path'], permissions)).resolves.toBeUndefined();
+        expect(permissions.request).toHaveBeenNthCalledWith(1, { origins: ['https://dictionary.example/*'] });
+        expect(permissions.request).toHaveBeenNthCalledWith(2, { origins: ['https://dictionary.example/*'] });
+    });
+    it('許可待ちに外部で並べ替えられても別の辞書を上書きせず、最新構成から再試行できます', async () => {
+        const draft = new SettingsDraft(); draft.receive(statusWithCustom());
+        const original = draft.dictionaries.find((d) => d.dictId === customDictionary.dictId)!;
+        const token = draft.captureCustomDictionaryEdit(original);
+        let resolvePermission!: (granted: boolean) => void;
+        const permission = requestCustomDictionaryPermission([original.source], {
+            request: vi.fn(() => new Promise<boolean>((resolve) => { resolvePermission = resolve; })),
+        }).then(() => draft.applyCustomDictionaryEdit(token, { name: '変更後', format: 'json', source: 'https://dictionary.example/second.json' }));
+
+        const remote = statusWithCustom(2);
+        remote.dictionaries = [remote.dictionaries[2]!, remote.dictionaries[1]!, remote.dictionaries[0]!];
+        draft.receive(remote);
+        resolvePermission(true);
+        await expect(permission).rejects.toThrow('構成が変更されました');
+        expect(draft.dictionaries).toEqual(definitions(remote));
+        expect(draft.dirty).toBe(false);
+
+        const retryTarget = draft.dictionaries.find((d) => d.dictId === customDictionary.dictId)!;
+        draft.applyCustomDictionaryEdit(draft.captureCustomDictionaryEdit(retryTarget), {
+            name: '変更後', format: 'json', source: 'https://dictionary.example/second.json',
+        });
+        expect(draft.dictionaries[0]).toMatchObject({ dictId: customDictionary.dictId, name: '変更後', format: 'json' });
+        expect(draft.dictionaries.slice(1).map((d) => d.dictId)).toEqual(remote.dictionaries.slice(1).map((d) => d.dictId));
+        expect(draft.dirty).toBe(true);
+    });
+    it('許可待ちに外部で削除されたカスタム辞書を復活させません', async () => {
+        const draft = new SettingsDraft(); draft.receive(statusWithCustom(3));
+        const original = draft.dictionaries.find((d) => d.dictId === customDictionary.dictId)!;
+        const token = draft.captureCustomDictionaryEdit(original);
+        let resolvePermission!: (granted: boolean) => void;
+        const permission = requestCustomDictionaryPermission([original.source], {
+            request: vi.fn(() => new Promise<boolean>((resolve) => { resolvePermission = resolve; })),
+        }).then(() => draft.applyCustomDictionaryEdit(token, { name: '復活してはいけない辞書', format: original.format, source: original.source }));
+
+        const remote = statusWithCustom(4);
+        remote.dictionaries = remote.dictionaries.filter((d) => d.dictId !== customDictionary.dictId);
+        draft.receive(remote);
+        resolvePermission(true);
+        await expect(permission).rejects.toThrow('構成が変更されました');
+        expect(draft.saved).toBe(remote);
+        expect(draft.dictionaries.some((d) => d.dictId === customDictionary.dictId)).toBe(false);
+        expect(draft.dirty).toBe(false);
     });
 });
 

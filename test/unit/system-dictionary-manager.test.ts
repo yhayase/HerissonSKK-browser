@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SystemDictionaryManager } from '../../src/storage/jisyo/SystemDictionaryManager';
-import { SYSTEM_DICTIONARY_CATALOG, DEFAULT_SYSTEM_DICTIONARIES, SYSTEM_OPERATION_ID, type SystemDictionaryDefinition } from '../../src/storage/jisyo/SystemDictionaryConfiguration';
+import { SYSTEM_DICTIONARY_CATALOG, DEFAULT_SYSTEM_DICTIONARIES, SYSTEM_OPERATION_ID, validateSystemDictionaries, type SystemDictionaryDefinition } from '../../src/storage/jisyo/SystemDictionaryConfiguration';
 import { IndexedDbJisyoStore } from '../../src/storage/jisyo/IndexedDbJisyoStore';
 import { Candidate } from '../../src/core/skk/jisyo/candidate';
 import { handleSystemDictionaryRpc } from '../../src/storage/rpc/systemDictionaryRpc';
@@ -10,6 +10,7 @@ const managers: SystemDictionaryManager[] = [];
 const names = new Set<string>();
 const bytes = (word: string) => new TextEncoder().encode(`かな /${word}/\n`);
 const local = (id: string, enabled = true): SystemDictionaryDefinition => ({ dictId: `local-${id}`, name: id, kind: 'local', format: 'text', source: `local:${id}`, enabled });
+const custom = (id: string, source = `https://dictionary.example/${id}.txt`, enabled = true): SystemDictionaryDefinition => ({ dictId: `custom-${id}`, name: id, kind: 'custom', format: 'text', source, enabled });
 function create(download = vi.fn(async () => ({ bytes: new TextEncoder().encode(JSON.stringify({ copyright: 'test', license: 'test', okuri_ari: {}, okuri_nasi: { 'かな': ['基本'] } })) })), name = `manager-${crypto.randomUUID()}`) {
     names.add(name);
     const manager = new SystemDictionaryManager({ dbName: name, download });
@@ -26,6 +27,51 @@ afterEach(async () => {
 });
 
 describe('system dictionary configuration', () => {
+    it('基本辞書 M の公式テキスト版と JSON 版をカタログに掲載します', () => {
+        expect(SYSTEM_DICTIONARY_CATALOG.filter((d) => d.kind === 'm')).toEqual([
+            expect.objectContaining({ dictId: 'skk-jisyo-m', format: 'text', source: 'https://raw.githubusercontent.com/skk-dev/dict/master/SKK-JISYO.M' }),
+            expect.objectContaining({ dictId: 'skk-jisyo-m', format: 'json', source: 'https://raw.githubusercontent.com/skk-dev/dict/master/json/SKK-JISYO.M.json' }),
+        ]);
+    });
+
+    it('カスタム辞書の HTTP(S) URL を正規化し、危険な URL を拒否します', () => {
+        expect(validateSystemDictionaries([custom('valid', 'http://example.test/a/../dict#part')])[0]!.source).toBe('http://example.test/dict#part');
+        for (const source of [
+            'ftp://example.test/dict', 'https://user@example.test/dict', 'https://user:secret@example.test/dict', 'not a url',
+            'https://*/dictionary', 'https://*.example.test/dictionary', 'https://%2A.example.test/dictionary',
+        ]) {
+            expect(() => validateSystemDictionaries([custom('invalid', source)])).toThrow();
+        }
+        expect(() => validateSystemDictionaries([{ ...custom('invalid'), dictId: 'catalog-shaped' }])).toThrow();
+    });
+
+    it('カスタム辞書を保存して再利用し、取得失敗時は直前の構成を維持します', async () => {
+        const { manager, download, name } = create();
+        await manager.initialize();
+        const first = custom('shared', 'http://dictionary.example/first.txt');
+        download.mockResolvedValueOnce({ bytes: bytes('共有候補') });
+        const imported = await manager.configure([...(await manager.status()).dictionaries, first]);
+        expect(imported.dictionaries.at(-1)).toMatchObject(first);
+        expect(await words(manager)).toEqual(['基本', '共有候補']);
+
+        const before = await manager.store.getSystemConfiguration();
+        const replacement = { ...first, source: 'https://dictionary.example/replacement.json', format: 'json' as const };
+        download.mockRejectedValueOnce(new Error('取得失敗'));
+        await expect(manager.configure([replacement])).rejects.toThrow('取得失敗');
+        expect(await manager.store.getSystemConfiguration()).toEqual(before);
+        expect(await words(manager)).toEqual(['基本', '共有候補']);
+
+        await manager.configure([{ ...first, enabled: false }]);
+        expect(download).toHaveBeenCalledTimes(3);
+        expect(await words(manager)).toBeUndefined();
+        const offline = vi.fn(async () => { throw new Error('オフライン'); });
+        const restarted = create(offline, name).manager;
+        await restarted.initialize();
+        await restarted.configure([first]);
+        expect(offline).not.toHaveBeenCalled();
+        expect(await words(restarted)).toEqual(['共有候補']);
+    });
+
     it('persists ordering, disabled bytes and an empty enabled set across restart', async () => {
         const { manager, name } = create();
         await manager.importDictionary(local('a'), [...bytes('追加')]);
@@ -196,6 +242,7 @@ describe('system dictionary configuration', () => {
     it('rejects malformed settings and import bytes before modifying the database', async () => {
         const { manager } = create();
         await expect(manager.configure([{ ...DEFAULT_SYSTEM_DICTIONARIES[0], source: 'https://evil.test/dict' }])).rejects.toThrow();
+        await expect(manager.configure([custom('credentials', 'https://user:secret@evil.test/dict')])).rejects.toThrow();
         await expect(manager.configure([local('a'), local('a')])).rejects.toThrow();
         await expect(manager.configure([{ ...local('a'), enabled: 'yes' }])).rejects.toThrow();
         await expect(manager.importDictionary(local('a'), [256])).rejects.toThrow();

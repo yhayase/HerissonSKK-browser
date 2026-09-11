@@ -1,4 +1,34 @@
-import type { SystemDictionaryDefinition, SystemDictionaryStatus } from '../storage/jisyo/SystemDictionaryConfiguration';
+import { validateCustomDictionaryUrl, type SystemDictionaryDefinition, type SystemDictionaryStatus } from '../storage/jisyo/SystemDictionaryConfiguration';
+
+export interface OptionalHostPermissions {
+    request(permissions: { origins: string[] }): Promise<boolean>;
+}
+
+export interface CustomDictionaryEditToken {
+    savedRevision: number;
+    baseRevision: number;
+    dictId: string;
+    source: string;
+}
+
+export function customDictionaryPermissionOrigins(sources: readonly string[]): string[] {
+    return [...new Set(sources.map((source) => {
+        const url = new URL(validateCustomDictionaryUrl(source));
+        // WebExtension の match pattern はポート番号を表現できないため、同じスキームとホストに限定します。
+        return `${url.protocol}//${url.hostname}/*`;
+    }))];
+}
+
+/** ユーザー操作中に、指定された取得先だけの任意権限を要求します。 */
+export async function requestCustomDictionaryPermission(sources: readonly string[], permissions: OptionalHostPermissions): Promise<void> {
+    const origins = customDictionaryPermissionOrigins(sources);
+    if (!origins.length) return;
+    let granted = false;
+    try { granted = await permissions.request({ origins }); } catch {
+        throw new Error(`カスタム辞書の取得先（${origins.join('、')}）へのアクセス許可を確認できませんでした。もう一度試してください。`);
+    }
+    if (!granted) throw new Error(`カスタム辞書の取得先（${origins.join('、')}）へのアクセスが許可されませんでした。許可してからもう一度試してください。`);
+}
 
 export function definitions(status: SystemDictionaryStatus): SystemDictionaryDefinition[] {
     return status.dictionaries.map(({ dictId, name, kind, format, source, enabled }) => ({ dictId, name, kind, format, source, enabled }));
@@ -35,6 +65,28 @@ export class SettingsDraft {
     remove(index: number): void {
         if (!this.canEdit || index < 0 || index >= this.dictionaries.length) return;
         this.dictionaries.splice(index, 1);
+        this.dirty = true;
+    }
+    captureCustomDictionaryEdit(definition: SystemDictionaryDefinition): CustomDictionaryEditToken {
+        if (definition.kind !== 'custom' || !this.dictionaries.some((current) => current.dictId === definition.dictId && current.source === definition.source)) {
+            throw new Error('編集するカスタム辞書が見つかりません。最新の構成からやり直してください。');
+        }
+        return { savedRevision: this.saved?.revision ?? 0, baseRevision: this.baseRevision,
+            dictId: definition.dictId, source: definition.source };
+    }
+    assertCustomDictionaryEdit(token: CustomDictionaryEditToken): SystemDictionaryDefinition {
+        if ((this.saved?.revision ?? 0) !== token.savedRevision || this.baseRevision !== token.baseRevision || this.conflict) {
+            throw new Error('アクセス許可の確認中に構成が変更されました。最新の構成を確認してもう一度試してください。');
+        }
+        const index = this.dictionaries.findIndex((current) => current.kind === 'custom'
+            && current.dictId === token.dictId && current.source === token.source);
+        if (index < 0) throw new Error('編集対象が変更されました。最新の構成を確認してもう一度試してください。');
+        return this.dictionaries[index]!;
+    }
+    applyCustomDictionaryEdit(token: CustomDictionaryEditToken, changes: Pick<SystemDictionaryDefinition, 'name' | 'format' | 'source'>): void {
+        const current = this.assertCustomDictionaryEdit(token);
+        const index = this.dictionaries.indexOf(current);
+        this.dictionaries[index] = { ...current, ...changes };
         this.dirty = true;
     }
 }

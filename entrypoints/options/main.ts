@@ -2,7 +2,7 @@ import './style.css';
 import { sendRuntimeMessage as rpc } from '@/src/storage/rpc/runtimeClient';
 import type { SkkRpcRequest, SystemDictionaryPreview, CandidateData } from '@/src/storage/rpc/messages';
 import type { SystemDictionaryDefinition, SystemDictionaryStatus } from '@/src/storage/jisyo/SystemDictionaryConfiguration';
-import { SettingsDraft, variants, sizeLabel, validateLocalFile, publishSettings, startupMessage } from '@/src/settings/model';
+import { SettingsDraft, variants, sizeLabel, validateLocalFile, publishSettings, startupMessage, requestCustomDictionaryPermission } from '@/src/settings/model';
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const input = (id: string) => element<HTMLInputElement>(id);
@@ -19,6 +19,16 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, text: string): HTML
 }
 function button(text: string, action: () => void, disabled = false): HTMLButtonElement {
     const result = node('button', text); result.type = 'button'; result.disabled = disabled; result.onclick = action; return result;
+}
+function authorizeCustomSources(sources: readonly string[], action: () => void): void {
+    if (busy) return;
+    busy = true; controls(); element('error').textContent = ''; element('notice').textContent = '取得先へのアクセス許可を確認中…';
+    const permission = requestCustomDictionaryPermission(sources, browser.permissions);
+    void permission.then(() => {
+        busy = false; controls(); action();
+    }).catch((error) => {
+        busy = false; controls(); element('error').textContent = errorText(error); element('notice').textContent = '操作を完了できませんでした。内容を確認してもう一度試してください。';
+    });
 }
 function controls(): void {
     const unavailable = busy || !model.canEdit;
@@ -50,7 +60,28 @@ function drawDraft(): void {
         const label = node('label', ''); const check = document.createElement('input'); check.type = 'checkbox'; check.checked = d.enabled;
         check.setAttribute('aria-label', `${d.name}を有効にする`); check.onchange = () => { d.enabled = check.checked; model.dirty = true; controls(); };
         label.append(check, document.createTextNode(d.name)); row.append(label);
-        if (d.kind !== 'local') {
+        if (d.kind === 'custom') {
+            const nameLabel = node('label', '辞書名'); nameLabel.className = 'custom-name';
+            const nameInput = document.createElement('input'); nameInput.value = d.name; nameInput.maxLength = 200; nameLabel.append(nameInput);
+            const formatLabel = node('label', '形式'); const formatSelect = document.createElement('select');
+            for (const [value, text] of [['text', 'テキスト'], ['json', 'JSON']] as const) {
+                const option = node('option', text); option.value = value; option.selected = d.format === value; formatSelect.append(option);
+            }
+            formatLabel.append(formatSelect);
+            const sourceLabel = node('label', '取得元 URL'); sourceLabel.className = 'custom-source';
+            const sourceInput = document.createElement('input'); sourceInput.type = 'url'; sourceInput.maxLength = 1000; sourceInput.value = d.source; sourceLabel.append(sourceInput);
+            const apply = button('アクセスを許可して変更', () => {
+                const name = nameInput.value.trim();
+                if (!name) { element('error').textContent = '辞書名を指定してください。'; return; }
+                const token = model.captureCustomDictionaryEdit(d);
+                authorizeCustomSources([sourceInput.value], () => {
+                    model.applyCustomDictionaryEdit(token, { name, format: formatSelect.value as 'text' | 'json', source: new URL(sourceInput.value).href });
+                    drawDraft();
+                });
+            });
+            apply.dataset.applyCustom = d.dictId;
+            row.append(nameLabel, formatLabel, sourceLabel, apply);
+        } else if (d.kind !== 'local') {
             const formatLabel = node('label', '形式・取得元'); const choices = document.createElement('select');
             for (const variant of model.saved!.catalog.filter((v) => v.dictId === d.dictId)) {
                 const option = node('option', `${variant.format === 'json' ? 'JSON' : 'テキスト'} — ${variant.source}`);
@@ -74,7 +105,14 @@ function drawDraft(): void {
             : node('p', `取得元：${d.source}\n状態：未保存（保存後に取得状態を確認できます）`);
         metadata.className = 'metadata'; item.append(metadata);
         if (current && current.kind !== 'local') {
-            const update = button('この辞書を更新', () => void mutate({ type: 'SKK_SYSTEM_UPDATE', dictId: current.dictId }));
+            const update = button('この辞書を更新', () => {
+                if (current.kind !== 'custom') { void mutate({ type: 'SKK_SYSTEM_UPDATE', dictId: current.dictId }); return; }
+                const token = model.captureCustomDictionaryEdit(current);
+                authorizeCustomSources([current.source], () => {
+                    model.assertCustomDictionaryEdit(token);
+                    void mutate({ type: 'SKK_SYSTEM_UPDATE', dictId: current.dictId });
+                });
+            });
             update.dataset.update = current.dictId; item.append(update);
         }
         list.append(item);
@@ -155,6 +193,15 @@ element('add').onclick = () => {
     if (!d) return;
     if (model.dictionaries.some((v) => v.dictId === d.dictId)) { element('error').textContent = 'この辞書は構成にあります。一覧で形式・取得元を変更してください。'; return; }
     model.dictionaries.push({ ...d, enabled: true }); model.dirty = true; drawDraft();
+};
+element('add-custom').onclick = () => {
+    const name = input('custom-name').value.trim(); const source = input('custom-source').value;
+    if (!name) { element('error').textContent = '辞書名を指定してください。'; return; }
+    authorizeCustomSources([source], () => {
+        model.dictionaries.push({ dictId: `custom-${crypto.randomUUID()}`, name, kind: 'custom',
+            format: select('custom-format').value as 'text' | 'json', source: new URL(source).href, enabled: true });
+        model.dirty = true; input('custom-name').value = ''; input('custom-source').value = ''; drawDraft();
+    });
 };
 element('save').onclick = () => void mutate({ type: 'SKK_SYSTEM_CONFIGURE', dictionaries: structuredClone(model.dictionaries) });
 select('import-target').onchange = () => {

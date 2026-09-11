@@ -7,6 +7,13 @@ import puppeteer from 'puppeteer-core';
 const root = process.cwd();
 const flavor = process.argv[2] ?? 'chrome';
 const output = path.join(root, '.output', `system-e2e-${flavor}`);
+const builtManifestPath = path.join(root, '.output', flavor === 'chrome' ? 'chrome-mv3' : 'firefox-mv2', 'manifest.json');
+const originalBuiltManifest = fs.readFileSync(builtManifestPath, 'utf8');
+const e2eManifest = JSON.parse(originalBuiltManifest);
+// ネイティブ権限 UI を操作できないヘッドレス実行でも、取得自体は実際のホスト権限下で検証します。
+const fixturePermission = 'http://127.0.0.1/*';
+const requiredHosts = flavor === 'chrome' ? (e2eManifest.host_permissions ??= []) : (e2eManifest.permissions ??= []);
+if (!requiredHosts.includes(fixturePermission)) requiredHosts.push(fixturePermission);
 fs.mkdirSync(output, { recursive: true });
 fs.writeFileSync(path.join(output, 'run.log'), '');
 const log = (...values) => { console.log(...values); fs.appendFileSync(path.join(output, 'run.log'), values.join(' ') + '\n'); };
@@ -18,7 +25,30 @@ const textFile = fixture('first.skk', ';; coding: utf-8\n;; okuri-ari entries.\n
 const jsonFile = fixture('second.json', json({ 'てすと': ['共通', '第二'], 'にほん': ['追加日本'], 'あくい': ['<img src=x onerror=alert(1)>'] }));
 const badFile = fixture('invalid.json', '{broken');
 const replacement = fixture('replacement.json', json({ 'てすと': ['更新候補', '共通'], 'にほん': ['再取込日本'] }));
-const server = http.createServer((req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><meta charset="utf-8"><input id="input-test"><textarea></textarea>'); });
+const customRequests = [];
+const server = http.createServer((req, res) => {
+  if (req.url === '/custom-v1.txt') {
+    customRequests.push({ url: req.url, cookie: req.headers.cookie, authorization: req.headers.authorization });
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.end(';; coding: utf-8\n;; okuri-nasi entries.\nかすたむ /URL候補/\n');
+    return;
+  }
+  if (req.url === '/custom-v2.json') {
+    customRequests.push({ url: req.url, cookie: req.headers.cookie, authorization: req.headers.authorization });
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(json({ 'かすたむ': ['URL更新候補'], 'かすたむついか': ['URL追加候補'] }));
+    return;
+  }
+  if (req.url === '/custom-invalid.json') {
+    customRequests.push({ url: req.url, cookie: req.headers.cookie, authorization: req.headers.authorization });
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end('{broken');
+    return;
+  }
+  res.setHeader('Content-Type', 'text/html');
+  res.setHeader('Set-Cookie', 'skk-e2e=private; SameSite=Lax');
+  res.end('<!doctype html><meta charset="utf-8"><input id="input-test"><textarea></textarea>');
+});
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const url = `http://127.0.0.1:${server.address().port}/`;
 let browser;
@@ -120,6 +150,20 @@ const transport = async (mode, body = '') => {
     };
   }, { mode, body });
 };
+// ヘッドレス Chrome/Firefox では任意権限のネイティブ確認 UI を操作できないため、許可 API の応答だけを制御します。
+// URL 取得、解析、IndexedDB への公開とロールバックは実際の拡張機能処理を通します。
+const permission = async (mode) => options.evaluate((mode) => {
+  const api = (globalThis.browser ?? chrome).permissions;
+  globalThis.__e2ePermissionMode = mode;
+  if (!globalThis.__e2ePermissionRequests) globalThis.__e2ePermissionRequests = [];
+  if (!globalThis.__e2eOriginalPermissionRequest) {
+    globalThis.__e2eOriginalPermissionRequest = api.request.bind(api);
+    api.request = async (request) => {
+      globalThis.__e2ePermissionRequests.push(structuredClone(request));
+      return globalThis.__e2ePermissionMode === 'allow';
+    };
+  }
+}, mode);
 // Firefox の拡張機能タブは BiDi の作成イベントが欠けるため、実タブと生のコンテキストで確認します。
 const verifyFirefoxPopup = async (popup) => {
   const inventory = () => popup.evaluate(async () => ({ url: browser.runtime.getURL('options.html'), tabs: await browser.tabs.query({}) }));
@@ -157,6 +201,7 @@ const verifyFirefoxPopup = async (popup) => {
   assert.fail(`popup did not create a ready options document: ${JSON.stringify(diagnostic)}`);
 };
 try {
+  fs.writeFileSync(builtManifestPath, JSON.stringify(e2eManifest));
   await launch();
   log(`[${flavor}] revision-zero startup DOM gate`);
   const startup = await browser.newPage();
@@ -191,7 +236,7 @@ try {
   await startup.waitForFunction(() => !document.querySelector('#draft-controls').disabled && document.querySelector('#draft-list [data-dict-id="skk-jisyo-s"]'));
   await startup.close();
   log(`[${flavor}] catalog selectors and bundled format switch`);
-  for (const kind of ['s', 'l', 'person', 'place', 'postal']) for (const format of ['text', 'json']) {
+  for (const kind of ['s', 'm', 'l', 'person', 'place', 'postal']) for (const format of ['text', 'json']) {
     await options.select('#kind', kind); await options.select('#format', format);
     assert.equal(await options.$eval('#add', (el) => el.disabled), kind === 'postal' && format === 'json');
   }
@@ -199,17 +244,67 @@ try {
     await options.select('#draft-list [data-dict-id="skk-jisyo-s"] select', source); await save();
     assert.equal((await status()).dictionaries[0].source, source);
   }
+  log(`[${flavor}] custom URL permission, validation, import rollback and source edit`);
+  const beforeInvalidCustom = await status();
+  await fill(options, '#custom-name', '危険な URL'); await fill(options, '#custom-source', 'https://user:secret@example.test/dictionary');
+  await click(options, '#add-custom');
+  await options.waitForFunction(() => document.querySelector('#error').textContent.includes('認証情報'));
+  assert.equal((await status()).revision, beforeInvalidCustom.revision);
+  assert.equal(await options.$$eval('#draft-list [data-dict-id^="custom-"]', (items) => items.length), 0);
+
+  await fill(options, '#custom-name', 'URL 辞書'); await fill(options, '#custom-source', url + 'custom-v1.txt');
+  await permission('deny'); await options.select('#custom-format', 'text'); await click(options, '#add-custom');
+  await options.waitForFunction(() => document.querySelector('#error').textContent.includes('許可されませんでした'));
+  assert.equal(await options.$$eval('#draft-list [data-dict-id^="custom-"]', (items) => items.length), 0);
+  await permission('allow'); await click(options, '#add-custom');
+  await options.waitForSelector('#draft-list [data-dict-id^="custom-"]');
+  const customId = await options.$eval('#draft-list [data-dict-id^="custom-"]', (item) => item.dataset.dictId);
+  assert.deepEqual(await options.evaluate(() => globalThis.__e2ePermissionRequests.slice(-2)), [
+    { origins: ['http://127.0.0.1/*'] }, { origins: ['http://127.0.0.1/*'] },
+  ]);
+  await save();
+  assert.ok(words(await preview('かすたむ')).includes('URL候補'));
+  assert.deepEqual(customRequests.at(-1), { url: '/custom-v1.txt', cookie: undefined, authorization: undefined });
+
+  const beforeDeniedUpdate = await status(); const requestCountBeforeDeniedUpdate = customRequests.length;
+  await permission('deny'); await click(options, `[data-update="${customId}"]`);
+  await options.waitForFunction(() => document.querySelector('#error').textContent.includes('許可されませんでした'));
+  assert.equal((await status()).revision, beforeDeniedUpdate.revision);
+  assert.equal(customRequests.length, requestCountBeforeDeniedUpdate);
+  await permission('allow'); await click(options, `[data-update="${customId}"]`); await saved(beforeDeniedUpdate.revision);
+  assert.equal(customRequests.length, requestCountBeforeDeniedUpdate + 1);
+
+  const beforeInvalidImport = await status();
+  await fill(options, `#draft-list [data-dict-id="${customId}"] .custom-source input`, url + 'custom-invalid.json');
+  await options.select(`#draft-list [data-dict-id="${customId}"] .row select`, 'json');
+  await click(options, `#draft-list [data-dict-id="${customId}"] [data-apply-custom]`);
+  await options.waitForFunction((id) => document.querySelector(`[data-apply-custom="${id}"]`) && !document.querySelector('#draft-controls').disabled, {}, customId);
+  await click(options, '#save');
+  await options.waitForFunction(() => document.querySelector('#error').textContent.length > 0 && !document.querySelector('#draft-controls').disabled);
+  assert.equal((await status()).revision, beforeInvalidImport.revision);
+  assert.ok(words(await preview('かすたむ')).includes('URL候補'));
+
+  await fill(options, `#draft-list [data-dict-id="${customId}"] .custom-source input`, url + 'custom-v2.json');
+  await click(options, `#draft-list [data-dict-id="${customId}"] [data-apply-custom]`);
+  await options.waitForFunction((id, source) => document.querySelector(`[data-dict-id="${id}"] .metadata`).textContent.includes(source), {}, customId, url + 'custom-v2.json');
+  await save();
+  assert.ok(words(await preview('かすたむ')).includes('URL更新候補'));
+  assert.deepEqual(customRequests.at(-1), { url: '/custom-v2.json', cookie: undefined, authorization: undefined });
   const first = await importFile('上位辞書', textFile, 'text');
   await importFile('上位辞書', fixture('first-reimport.skk', fs.readFileSync(textFile, 'utf8') + 'さいと /再取込テキスト/\n'), 'text', first);
   assert.ok(words(await preview('さいと')).includes('再取込テキスト'));
   const second = await importFile('<img src=x onerror=alert(1)>', jsonFile, 'json');
   await importFile('注釈辞書', fixture('annotations.skk', ';; coding: utf-8\n;; okuri-nasi entries.\nちゅうしゃくけんしょう /重複;別の注釈/\n'), 'text');
   await assertConfigurationList();
-  assert.equal((await status()).dictionaries.length, 4);
+  assert.equal((await status()).dictionaries.length, 5);
   await click(options, '#refresh');
   await options.waitForFunction(() => !document.querySelector('#refresh').disabled);
   await assertConfigurationList();
-  await options.reload(); await options.waitForFunction(() => !document.querySelector('#draft-controls').disabled);
+  if (flavor === 'firefox') {
+    await options.goto('about:blank');
+    await navigate(options, extensionRoot + 'options.html');
+  } else await options.reload();
+  await options.waitForFunction(() => !document.querySelector('#draft-controls').disabled);
   await assertConfigurationList();
   const result = await preview('てすと');
   assert.deepEqual(words(result), ['共通', '第一', '第三', '第四', '第五', '第六', '第七', '第八', '第二']);
@@ -229,8 +324,10 @@ try {
   assert.ok(!(await preview('かk', 'け')).some((c) => c.word === '描'));
   assert.ok((await preview('かk', '', true)).some((c) => c.word === '描'));
   await click(options, '#preview-all');
+  await click(options, '#draft-list [data-dict-id="skk-jisyo-s"] [aria-label$="を下へ"]');
   await click(options, '#draft-list [data-dict-id="skk-jisyo-s"] [aria-label$="を下へ"]'); await save();
   assert.equal(words(await preview('にほん'))[0], '独自日本');
+  await click(options, '#draft-list [data-dict-id="skk-jisyo-s"] [aria-label$="を上へ"]');
   await click(options, '#draft-list [data-dict-id="skk-jisyo-s"] [aria-label$="を上へ"]'); await save();
   await preview('あくい'); assert.equal(await options.$$eval('#draft-list img, #system-candidates img', (els) => els.length), 0);
   if (flavor === 'firefox') await options.goto('about:blank');
@@ -419,4 +516,5 @@ try {
 } finally {
   if (browser) await browser.close();
   await new Promise((resolve) => server.close(resolve));
+  fs.writeFileSync(builtManifestPath, originalBuiltManifest);
 }

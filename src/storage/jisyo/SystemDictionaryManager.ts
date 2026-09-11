@@ -16,7 +16,7 @@ export interface SystemDictionaryManagerOptions extends IndexedDbJisyoStoreOptio
 
 async function downloadDictionary(definition: SystemDictionaryDefinition): Promise<DictionaryDownload> {
     if (definition.source.startsWith('local:')) throw new Error('ローカル辞書ファイルを選択してください。');
-    if (!definition.source.startsWith('https:')) {
+    if (!/^https?:/.test(definition.source)) {
         return { bytes: await DictionaryLoader.fetchDictionaryBuffer(DictionaryLoader.getDictionaryUrl(definition.source), definition.source) };
     }
     const response = await fetch(definition.source, { credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(120_000) });
