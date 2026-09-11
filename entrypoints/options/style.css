@@ -6,6 +6,8 @@ main, section, .fields, .row, .columns > *, label { min-width: 0; }
 label { max-width: 100%; }
 input, select { min-width: 0; }
 .row label:has(select) { flex: 1 1 280px; flex-direction: column; align-items: stretch; }
+.row .custom-name { flex: 1 1 180px; flex-direction: column; align-items: stretch; }
+.row .custom-source, .source-field { flex: 2 1 360px; flex-direction: column; align-items: stretch; }
 .row select, .fields select, .fields input:not([type=checkbox]) { width: 100%; }
 input[type=checkbox] { flex-shrink: 0; }
 #draft-list { padding-left: 0; list-style-position: inside; }
