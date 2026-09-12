@@ -101,6 +101,27 @@ describe("SKK Registration & State Transitions Specification (docs/specs/registr
     });
 
     // -------------------------------------------------------------------------
+    it.each(["enter", "ctrl+g"])("促音を含む送り仮名の登録を %s で中止しても読みを編集できます", async (key) => {
+        const mode = HiraganaMode.getInstance();
+        adapter.setInputMode(mode);
+        for (const char of "TsukaTte") {
+            if (char === char.toUpperCase()) await mode.upperAlphabetInput(char);
+            else await mode.lowerAlphabetInput(char);
+        }
+        const registration = adapter.getCurrentInputMode() as RegistrationMode;
+        expect(registration).toBeInstanceOf(RegistrationMode);
+        expect(registration.getYomi()).toBe("つかt");
+        if (key === "enter") await registration.enterInput();
+        else await registration.ctrlGInput();
+        expect(adapter.getCurrentInputMode()).toBe(mode);
+        expect(adapter.extractMidashigo()).toBe("つかって");
+        expect(adapter.getRemainingRomaji()).toBe("");
+        expect(mode.getContextualName()).toBe("hiragana:midashigo:gokan");
+        await mode.backspaceInput();
+        expect(adapter.extractMidashigo()).toBe("つかっ");
+        expect(mockElement.value).toBe("");
+    });
+
     // 2. 送りあり見出し語の生成規則 (SPEC-OKURI-01)
     // -------------------------------------------------------------------------
     describe("2. 送りあり見出し語の生成規則 (SPEC-OKURI-01)", () => {

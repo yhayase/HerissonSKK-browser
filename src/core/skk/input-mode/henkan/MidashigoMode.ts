@@ -62,6 +62,11 @@ export class MidashigoMode extends AbstractMidashigoMode {
         const jisyoEntry = await this.findCandidates(midashigo, okuri);
         if (jisyoEntry === undefined) {
             const { keyForLookup } = this.createJisyoKey(midashigo, okuri);
+            if (okuri.length > 0) {
+                // 登録を中止したときも完成した送り仮名を編集できるようにします。
+                this.resetOkuriState();
+                await context.insertStringAndShowRemaining(okuri, "", false);
+            }
             await this.editor.openRegistrationEditor(keyForLookup, okuri);
             return;
         }
