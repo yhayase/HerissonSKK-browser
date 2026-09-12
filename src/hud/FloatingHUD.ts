@@ -1,3 +1,5 @@
+import { OVERLAY_FONT_FAMILY, OVERLAY_THEME_CSS } from './overlayTheme';
+
 export interface HUDState {
   x: number;
   y: number;
@@ -47,47 +49,49 @@ export class FloatingHUD {
       :host {
         all: initial;
       }
+      ${OVERLAY_THEME_CSS}
       .skk-hud-box {
         position: fixed;
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        background: rgba(30, 30, 46, 0.95);
-        color: #cdd6f4;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-        font-size: 13px;
+        background: var(--skk-overlay-surface);
+        color: var(--skk-overlay-text);
+        font-family: ${OVERLAY_FONT_FAMILY};
+        font-size: 18px;
         line-height: 1.4;
         padding: 4px 10px;
         border-radius: 6px;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(8px);
+        box-shadow: 0 4px 16px var(--skk-overlay-shadow), 0 0 0 1px var(--skk-overlay-border);
         pointer-events: none;
         user-select: none;
-        white-space: nowrap;
+        max-width: calc(100vw - 16px);
+        white-space: normal;
+        overflow-wrap: anywhere;
         transform: translateY(4px);
         transition: opacity 0.12s ease-out, transform 0.12s ease-out;
         z-index: 2147483647;
       }
       .skk-mode-badge {
-        background: #89b4fa;
-        color: #11111b;
+        background: var(--skk-overlay-mode);
+        color: var(--skk-overlay-mode-text);
         font-weight: 700;
-        font-size: 11px;
+        font-size: 14px;
         padding: 1px 6px;
         border-radius: 4px;
         letter-spacing: 0.5px;
       }
       .skk-preedit {
-        color: #f9e2af;
+        color: var(--skk-overlay-preedit);
         font-weight: 500;
       }
       .skk-candidate {
-        color: #a6e3a1;
+        color: var(--skk-overlay-candidate);
         font-weight: 700;
       }
       .skk-status {
-        color: #a6adc8;
-        font-size: 11px;
+        color: var(--skk-overlay-muted);
+        font-size: 14px;
         margin-left: 4px;
       }
       .skk-hidden {
@@ -159,17 +163,17 @@ export class FloatingHUD {
 
     this.badgeEl!.textContent = state.mode;
     if (state.mode === '辞書登録' || state.mode === '再帰登録') {
-      this.badgeEl!.style.background = '#fab387';
-      this.badgeEl!.style.color = '#11111b';
+      this.badgeEl!.style.background = 'var(--skk-overlay-register)';
+      this.badgeEl!.style.color = 'var(--skk-overlay-register-text)';
     } else if (state.mode === 'カナ') {
-      this.badgeEl!.style.background = '#a6e3a1';
-      this.badgeEl!.style.color = '#11111b';
+      this.badgeEl!.style.background = 'var(--skk-overlay-candidate-badge)';
+      this.badgeEl!.style.color = 'var(--skk-overlay-candidate-text)';
     } else if (state.mode === '全英') {
-      this.badgeEl!.style.background = '#f9e2af';
-      this.badgeEl!.style.color = '#11111b';
+      this.badgeEl!.style.background = 'var(--skk-overlay-register)';
+      this.badgeEl!.style.color = 'var(--skk-overlay-register-text)';
     } else {
-      this.badgeEl!.style.background = '#89b4fa';
-      this.badgeEl!.style.color = '#11111b';
+      this.badgeEl!.style.background = 'var(--skk-overlay-mode)';
+      this.badgeEl!.style.color = 'var(--skk-overlay-mode-text)';
     }
 
     this.preeditEl!.textContent = state.preedit || '';

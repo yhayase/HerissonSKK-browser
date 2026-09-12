@@ -1,4 +1,5 @@
 import type { IEditorTarget, IEditorSelectionSnapshot } from "../adapter/targets/IEditorTarget";
+import { OVERLAY_FONT_FAMILY, OVERLAY_THEME_CSS } from "./overlayTheme";
 
 interface RegistrationSession {
     depth: number;
@@ -55,11 +56,12 @@ export class RegistrationModal {
         RegistrationModal.activeModal = this;
 
         if (typeof document !== "undefined") {
+            this.installTheme();
             this.overlayEl = document.createElement("div");
             this.overlayEl.className = "skk-registration-modal-overlay";
             this.overlayEl.style.position = "fixed";
             this.overlayEl.style.inset = "0";
-            this.overlayEl.style.background = "rgba(0, 0, 0, 0.4)";
+            this.overlayEl.style.background = "var(--skk-overlay-backdrop)";
             this.overlayEl.style.zIndex = "2147483647";
             this.overlayEl.style.display = "flex";
             this.overlayEl.style.alignItems = "center";
@@ -68,29 +70,34 @@ export class RegistrationModal {
 
             this.dialogEl = document.createElement("div");
             this.dialogEl.className = "skk-registration-modal-dialog";
-            this.dialogEl.style.background = "#1e1e2e";
-            this.dialogEl.style.color = "#cdd6f4";
+            this.dialogEl.style.background = "var(--skk-overlay-surface)";
+            this.dialogEl.style.color = "var(--skk-overlay-text)";
+            this.dialogEl.style.fontFamily = OVERLAY_FONT_FAMILY;
+            this.dialogEl.style.fontSize = "18px";
             this.dialogEl.style.padding = "16px 20px";
             this.dialogEl.style.borderRadius = "8px";
-            this.dialogEl.style.boxShadow = "0 8px 24px rgba(0, 0, 0, 0.5)";
+            this.dialogEl.style.boxShadow = "0 8px 24px var(--skk-overlay-shadow)";
             this.dialogEl.style.display = "flex";
             this.dialogEl.style.flexDirection = "column";
             this.dialogEl.style.gap = "8px";
-            this.dialogEl.style.minWidth = "280px";
+            this.dialogEl.style.width = "min(420px, calc(100vw - 32px))";
+            this.dialogEl.style.minWidth = "0";
+            this.dialogEl.style.boxSizing = "border-box";
 
             const headerEl = document.createElement("div");
             headerEl.style.display = "flex";
             headerEl.style.alignItems = "center";
+            headerEl.style.flexWrap = "wrap";
             headerEl.style.gap = "8px";
 
             this.badgeEl = document.createElement("span");
             this.badgeEl.className = "skk-modal-badge";
             this.badgeEl.textContent = "辞書登録";
-            this.badgeEl.style.background = "#fab387";
-            this.badgeEl.style.color = "#11111b";
+            this.badgeEl.style.background = "var(--skk-overlay-register)";
+            this.badgeEl.style.color = "var(--skk-overlay-register-text)";
             this.badgeEl.style.padding = "2px 6px";
             this.badgeEl.style.borderRadius = "4px";
-            this.badgeEl.style.fontSize = "12px";
+            this.badgeEl.style.fontSize = "14px";
             this.badgeEl.style.fontWeight = "bold";
 
             this.promptEl = document.createElement("span");
@@ -110,37 +117,40 @@ export class RegistrationModal {
             this.statusLineEl.className = "skk-modal-status-line";
             this.statusLineEl.style.display = "flex";
             this.statusLineEl.style.alignItems = "center";
+            this.statusLineEl.style.flexWrap = "wrap";
             this.statusLineEl.style.gap = "8px";
-            this.statusLineEl.style.fontSize = "13px";
+            this.statusLineEl.style.fontSize = "14px";
             this.statusLineEl.style.minHeight = "22px";
             this.statusLineEl.style.marginTop = "2px";
 
             this.modeBadgeEl = document.createElement("span");
             this.modeBadgeEl.className = "skk-modal-status-mode";
-            this.modeBadgeEl.style.background = "#45475a";
-            this.modeBadgeEl.style.color = "#cdd6f4";
+            this.modeBadgeEl.style.background = "var(--skk-overlay-mode)";
+            this.modeBadgeEl.style.color = "var(--skk-overlay-mode-text)";
             this.modeBadgeEl.style.padding = "1px 6px";
             this.modeBadgeEl.style.borderRadius = "3px";
-            this.modeBadgeEl.style.fontSize = "11px";
+            this.modeBadgeEl.style.fontSize = "14px";
             this.modeBadgeEl.style.fontWeight = "bold";
             this.modeBadgeEl.textContent = "かな";
 
             this.preeditEl = document.createElement("span");
             this.preeditEl.className = "skk-modal-status-preedit";
-            this.preeditEl.style.color = "#89b4fa";
+            this.preeditEl.style.color = "var(--skk-overlay-preedit)";
+            this.preeditEl.style.fontSize = "18px";
             this.preeditEl.style.fontWeight = "bold";
             this.preeditEl.style.display = "none";
 
             this.candidateEl = document.createElement("span");
             this.candidateEl.className = "skk-modal-status-candidate";
-            this.candidateEl.style.color = "#a6e3a1";
+            this.candidateEl.style.color = "var(--skk-overlay-candidate)";
+            this.candidateEl.style.fontSize = "18px";
             this.candidateEl.style.fontWeight = "bold";
             this.candidateEl.style.display = "none";
 
             this.statusTextEl = document.createElement("span");
             this.statusTextEl.className = "skk-modal-status-text";
-            this.statusTextEl.style.color = "#bac2de";
-            this.statusTextEl.style.fontSize = "12px";
+            this.statusTextEl.style.color = "var(--skk-overlay-muted)";
+            this.statusTextEl.style.fontSize = "14px";
             this.statusTextEl.style.display = "none";
 
             this.statusLineEl.appendChild(this.modeBadgeEl);
@@ -182,15 +192,28 @@ export class RegistrationModal {
         if (input.style) {
             input.style.width = "100%";
             input.style.padding = "6px 8px";
-            input.style.background = "#181825";
-            input.style.color = "#cdd6f4";
-            input.style.border = "1px solid #45475a";
+            input.style.background = "var(--skk-overlay-input)";
+            input.style.color = "var(--skk-overlay-text)";
+            input.style.border = "1px solid var(--skk-overlay-border)";
             input.style.borderRadius = "4px";
-            input.style.fontSize = "14px";
+            input.style.fontSize = "18px";
             input.style.outline = "none";
             input.style.boxSizing = "border-box";
         }
         return input;
+    }
+
+    private installTheme(): void {
+        if (!this.shadowRoot || typeof document === "undefined") return;
+        if (typeof this.shadowRoot.querySelector === "function" && this.shadowRoot.querySelector("style[data-skk-overlay-theme]")) {
+            return;
+        }
+        const style = document.createElement("style");
+        if (typeof style.setAttribute === "function") {
+            style.setAttribute("data-skk-overlay-theme", "true");
+        }
+        style.textContent = OVERLAY_THEME_CSS;
+        this.shadowRoot.appendChild(style);
     }
 
     public pushSession(yomi: string, okuri: string): HTMLInputElement | null {
