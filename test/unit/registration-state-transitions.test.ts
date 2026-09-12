@@ -1,3 +1,4 @@
+import { withOverlayDOM } from "./mocks/OverlayDOM";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { SimpleMemoryJisyoProvider } from "../../src/core/skk/jisyo/SimpleMemoryJisyoProvider";
 import { BrowserEditorAdapter } from "../../src/adapter/BrowserEditorAdapter";
@@ -61,7 +62,7 @@ describe("SKK Registration & State Transitions Specification (docs/specs/registr
 
         (globalThis as any).document = {
             activeElement: mockElement,
-            createElement: () => ({
+            createElement: () => withOverlayDOM({
                 style: {},
                 classList: { add: () => {}, remove: () => {} },
                 appendChild: () => {},

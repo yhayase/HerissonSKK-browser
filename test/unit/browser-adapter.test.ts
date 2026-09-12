@@ -1,3 +1,4 @@
+import { withOverlayDOM } from "./mocks/OverlayDOM";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SimpleMemoryJisyoProvider } from "../../src/core/skk/jisyo/SimpleMemoryJisyoProvider";
 import { BrowserEditorAdapter } from "../../src/adapter/BrowserEditorAdapter";
@@ -9,6 +10,8 @@ import { KatakanaMode } from "../../src/core/skk/input-mode/KatakanaMode";
 import { AsciiMode } from "../../src/core/skk/input-mode/AsciiMode";
 import { ZeneiMode } from "../../src/core/skk/input-mode/ZeneiMode";
 import { DeleteLeftResult } from "../../src/core/skk/editor/IEditor";
+import { MenuHenkanMode } from "../../src/core/skk/input-mode/henkan/MenuHenkanMode";
+import type { InlineHenkanMode } from "../../src/core/skk/input-mode/henkan/InlineHenkanMode";
 import { FloatingHUD } from "../../src/hud/FloatingHUD";
 import { getActiveCaretCoordinates } from "../../src/adapter/CaretPosition";
 import { insertText, isInputElement, isTextAreaElement, isSelectableInput } from "../../src/adapter/TextInserter";
@@ -296,7 +299,7 @@ describe("BrowserEditorAdapter", () => {
 
         (globalThis as any).document = {
             activeElement: mockElement,
-            createElement: () => ({
+            createElement: () => withOverlayDOM({
                 style: {},
                 classList: { add: () => {}, remove: () => {} },
                 appendChild: () => {},
@@ -338,6 +341,61 @@ describe("BrowserEditorAdapter", () => {
         (globalThis as any).HTMLInputElement = originalHTMLInputElement;
         (globalThis as any).HTMLTextAreaElement = originalHTMLTextAreaElement;
         (globalThis as any).Event = originalEvent;
+    });
+
+    describe("構造化された候補表示", () => {
+        it("候補一覧に送り仮名・接尾辞・注釈を渡し、古い読みを表示しない", async () => {
+            adapter.setMidashigoStartToCurrentPosition();
+            await adapter.insertOrReplaceSelection("▽おく");
+            adapter.showRemainingRomaji("r", true, 0);
+            await adapter.showCandidate(undefined, "る", "。");
+            adapter.showCandidateList([new Candidate("送", "届ける"), new Candidate("贈", "贈与")], ["A", "S"]);
+            expect(hud.getState()?.preedit).toBe("");
+            expect(hud.getState()?.status).toBeUndefined();
+            expect(hud.getState()?.candidateList?.rows).toEqual([
+                { key: "A", word: "送る。", annotation: "届ける" },
+                { key: "S", word: "贈る。", annotation: "贈与" },
+            ]);
+            expect(mockElement.value).toBe("");
+        });
+
+        it("リサイズ通知で容量とキーを同期し、表示候補を正しく確定する", async () => {
+            const context = new HiraganaMode(adapter);
+            adapter.setInputMode(context);
+            const entry = new Entry("こうほ", Array.from({ length: 20 }, (_, i) => new Candidate(`候補${i}`)), "");
+            const previous = { showCandidate: vi.fn() } as unknown as InlineHenkanMode;
+            const menu = new MenuHenkanMode(context, adapter, previous, entry, 3, "", "");
+            context.setHenkanMode(menu);
+            expect(adapter.getCandidateList().candidates).toHaveLength(7);
+            (window as any).innerHeight = 300;
+            adapter.refreshOverlayGeometry();
+            const list = adapter.getCandidateList();
+            expect(list.candidates.length).toBeGreaterThanOrEqual(1);
+            expect(list.candidates.length).toBeLessThan(7);
+            expect(list.selectionKeys).toHaveLength(list.candidates.length);
+            expect(list.candidates[0]?.word).toBe("候補3");
+            await menu.onLowerAlphabet(context, "s");
+            expect(mockElement.value).toBe("候補4");
+        });
+
+        it("非表示中のスクロールやフォーカスを失った後の更新では再表示しない", () => {
+            adapter.updateHUD();
+            hud.hide();
+            adapter.refreshOverlayGeometry();
+            expect(hud.getVisible()).toBe(false);
+            (document as any).hasFocus = () => false;
+            adapter.updateHUD();
+            expect(hud.getVisible()).toBe(false);
+        });
+
+        it("入力欄の余白を除くキャレット行を配置に渡す", () => {
+            const caret = getActiveCaretCoordinates(mockElement as unknown as Element)!;
+            expect(caret.top).toBe(205);
+            expect(caret.bottom).toBe(225);
+            adapter.updateHUD();
+            expect(hud.getState()?.caretTop).toBe(205);
+            expect(hud.getState()?.y).toBe(225);
+        });
     });
 
     describe("1. Architectural Design: In-Memory Preedit & Zero DOM Churn", () => {

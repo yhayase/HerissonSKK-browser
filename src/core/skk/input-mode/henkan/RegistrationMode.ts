@@ -1,4 +1,4 @@
-import type { IEditor, IRange } from "../../editor/IEditor";
+import type { CandidateListOptions, IEditor, IRange } from "../../editor/IEditor";
 import { DeleteLeftResult } from "../../editor/IEditor";
 import { AbstractInputMode } from "../AbstractInputMode";
 import type { IInputMode } from "../IInputMode";
@@ -44,6 +44,7 @@ export class RegistrationMiniBufferEditor implements IEditor {
     private currentSuffix: string = "";
     private candidateList: Candidate[] = [];
     private candidateAlphabetList: string[] = [];
+    private candidateListOptions?: CandidateListOptions;
     private target?: ITextTarget;
 
     constructor(registrationMode: RegistrationMode, outerEditor: IEditor) {
@@ -94,9 +95,10 @@ export class RegistrationMiniBufferEditor implements IEditor {
         return this.currentSuffix;
     }
 
-    public getCandidateList(): { candidates: Candidate[]; selectionKeys: string[] } {
+    public getCandidateList(): { candidates: Candidate[]; selectionKeys: string[]; options?: CandidateListOptions } {
         return {
             candidates: this.candidateList,
+            ...(this.candidateListOptions ? { options: this.candidateListOptions } : {}),
             selectionKeys: this.candidateAlphabetList
         };
     }
@@ -275,13 +277,19 @@ export class RegistrationMiniBufferEditor implements IEditor {
         return true;
     }
 
-    public showCandidateList(candidateList: Candidate[], alphabetList: string[]): void {
+    public showCandidateList(candidateList: Candidate[], alphabetList: string[], options?: CandidateListOptions): void {
+        this.candidateListOptions = options;
         this.candidateList = candidateList;
         this.candidateAlphabetList = alphabetList;
         void this.registrationMode.notifyChanged();
     }
 
+    public scrollCandidateAnnotation(delta: number): void {
+        this.outerEditor.scrollCandidateAnnotation?.(delta);
+    }
+
     public hideCandidateList(): void {
+        this.candidateListOptions = undefined;
         this.candidateList = [];
         this.candidateAlphabetList = [];
         void this.registrationMode.notifyChanged();
@@ -305,6 +313,7 @@ export class RegistrationMiniBufferEditor implements IEditor {
         this.currentCandidate = undefined;
         this.currentOkuri = "";
         this.currentSuffix = "";
+        this.candidateListOptions = undefined;
         this.candidateList = [];
         this.candidateAlphabetList = [];
 

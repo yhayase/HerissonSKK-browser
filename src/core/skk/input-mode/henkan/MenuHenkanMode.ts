@@ -8,10 +8,14 @@ import type { Entry } from "../../jisyo/entry";
 export class MenuHenkanMode extends AbstractHenkanMode {
     private readonly prevMode: InlineHenkanMode;
     private readonly jisyoEntry: Entry;
-    private readonly candidateIndexStart: number;
     private candidateIndex: number;
     private readonly okuri: string;
     private readonly suffix: string;
+    private pageCapacity = 7;
+    private readonly pageStarts: number[] = [];
+    private annotationMode: 'normal' | 'choose' | 'detail' = 'normal';
+    private detailIndex?: number;
+    private visible = true;
 
     private readonly selectionKeys = ['a', 's', 'd', 'f', 'j', 'k', 'l'];
 
@@ -20,7 +24,6 @@ export class MenuHenkanMode extends AbstractHenkanMode {
         super("Select", editor);
         this.prevMode = prevMode;
         this.jisyoEntry = jisyoEntry;
-        this.candidateIndexStart = candidateIndex;
         this.candidateIndex = candidateIndex;
         this.okuri = okuri;
         this.suffix = suffix;
@@ -29,15 +32,51 @@ export class MenuHenkanMode extends AbstractHenkanMode {
         this.showCandidateList(context);
     }
 
-    readonly nDisplayCandidates = 7;
+    get nDisplayCandidates(): number { return this.pageCapacity; }
 
     showCandidateList(context: AbstractKanaMode): void {
+        this.visible = true;
+        const candidates = this.jisyoEntry.getCandidateList().slice(this.candidateIndex, this.candidateIndex + this.pageCapacity);
         this.editor.showCandidateList(
-            this.jisyoEntry.getCandidateList().slice(this.candidateIndex, this.candidateIndex + this.nDisplayCandidates) as any,
-            this.selectionKeys.map((s) => s.toUpperCase()));
+            candidates as any,
+            this.selectionKeys.slice(0, candidates.length).map((s) => s.toUpperCase()), {
+                okuri: this.okuri,
+                suffix: this.suffix,
+                pageCapacity: this.pageCapacity,
+                annotationMode: this.annotationMode,
+                detailIndex: this.detailIndex,
+                onCapacityChange: (capacity) => {
+                    if (!this.visible || !Number.isFinite(capacity)) return;
+                    const next = Math.max(1, Math.min(7, Math.floor(capacity)));
+                    if (next === this.pageCapacity) return;
+                    this.pageCapacity = next;
+                    if (this.detailIndex !== undefined && this.detailIndex >= next) {
+                        this.annotationMode = 'choose';
+                        this.detailIndex = undefined;
+                    }
+                    this.showCandidateList(context);
+                },
+                onSpecialKey: (key) => {
+                    if (!this.visible || this.annotationMode === 'normal') return false;
+                    if (key === 'Escape') {
+                        this.annotationMode = 'normal';
+                        this.detailIndex = undefined;
+                        this.showCandidateList(context);
+                        return true;
+                    }
+                    if (key.startsWith('Arrow')) {
+                        if (this.annotationMode === 'detail') {
+                            this.editor.scrollCandidateAnnotation?.(key === 'ArrowUp' || key === 'ArrowLeft' ? -48 : 48);
+                        }
+                        return true;
+                    }
+                    return false;
+                },
+            });
     }
 
     hideCandidateList(context: AbstractKanaMode): void {
+        this.visible = false;
         this.editor.hideCandidateList();
     }
 
@@ -55,6 +94,13 @@ export class MenuHenkanMode extends AbstractHenkanMode {
                 return;
             }
 
+            if (this.annotationMode !== 'normal') {
+                this.annotationMode = 'detail';
+                this.detailIndex = idx;
+                this.showCandidateList(context);
+                return;
+            }
+
             this.hideCandidateList(context);
             await this.fixateAndGoKakuteiMode(context, selectedCandidateIdx);
             return;
@@ -64,11 +110,14 @@ export class MenuHenkanMode extends AbstractHenkanMode {
     }
 
     async scrollBackCandidatePage(context: AbstractKanaMode): Promise<void> {
-        this.candidateIndex -= this.nDisplayCandidates;
-        if (this.candidateIndex < this.candidateIndexStart) {
+        this.annotationMode = 'normal';
+        this.detailIndex = undefined;
+        const previousStart = this.pageStarts.pop();
+        if (previousStart === undefined) {
             await this.returnToInlineHenkanMode(context);
             return;
         }
+        this.candidateIndex = previousStart;
 
         this.showCandidateList(context);
         this.editor.notifyModeInternalStateChanged(); // Notify about candidate index change
@@ -84,7 +133,7 @@ export class MenuHenkanMode extends AbstractHenkanMode {
     }
 
     private async returnToInlineHenkanMode(context: AbstractKanaMode): Promise<void> {
-        this.editor.hideCandidateList();
+        this.hideCandidateList(context);
         context.setHenkanMode(this.prevMode);
         await this.prevMode.showCandidate(context);
     }
@@ -98,6 +147,12 @@ export class MenuHenkanMode extends AbstractHenkanMode {
     }
 
     async onSymbol(context: AbstractKanaMode, key: string): Promise<void> {
+        if (key === '?') {
+            this.annotationMode = 'choose';
+            this.detailIndex = undefined;
+            this.showCandidateList(context);
+            return;
+        }
         if (key === '.') {
             await this.editor.openRegistrationEditor(this.prevMode.getMidashigo(), this.okuri);
             return;
@@ -106,11 +161,14 @@ export class MenuHenkanMode extends AbstractHenkanMode {
     }
 
     async onSpace(context: AbstractKanaMode): Promise<void> {
+        this.annotationMode = 'normal';
+        this.detailIndex = undefined;
         if (this.candidateIndex + this.nDisplayCandidates >= this.jisyoEntry.getCandidateList().length) {
             await this.editor.openRegistrationEditor(this.prevMode.getMidashigo(), this.okuri);
             return;
         }
 
+        this.pageStarts.push(this.candidateIndex);
         this.candidateIndex += this.nDisplayCandidates;
         this.showCandidateList(context);
     }
@@ -136,7 +194,7 @@ export class MenuHenkanMode extends AbstractHenkanMode {
     }
 
     async onCtrlG(context: AbstractKanaMode): Promise<void> {
-        this.editor.hideCandidateList();
+        this.hideCandidateList(context);
         await this.prevMode.returnToMidashigoMode(context);
     }
 
@@ -161,6 +219,10 @@ export class MenuHenkanMode extends AbstractHenkanMode {
         keys.add("backspace");
         keys.add("ctrl+j");
         keys.add("ctrl+g");
+        if (this.annotationMode !== 'normal') {
+            keys.add('escape');
+            for (const key of ['arrowup', 'arrowdown', 'arrowleft', 'arrowright']) keys.add(key);
+        }
 
         return keys;
     }

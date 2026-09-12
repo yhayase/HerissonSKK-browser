@@ -1,3 +1,7 @@
+import { CandidateListView, type CandidateListState } from "./CandidateListView";
+import { getOverlayViewport, measureCandidateRows } from "./FloatingHUD";
+import { computeOverlayLayout, type OverlayLayout } from "./OverlayLayout";
+import type { CandidateListOptions } from "../core/skk/editor/IEditor";
 import type { IEditorTarget, IEditorSelectionSnapshot } from "../adapter/targets/IEditorTarget";
 import { OVERLAY_FONT_FAMILY, OVERLAY_THEME_CSS } from "./overlayTheme";
 
@@ -28,6 +32,8 @@ export class RegistrationModal {
     private preeditEl: HTMLElement | null = null;
     private candidateEl: HTMLElement | null = null;
     private statusTextEl: HTMLElement | null = null;
+    private candidateListView: CandidateListView | null = null;
+    private previousLayout?: OverlayLayout;
 
     constructor(private shadowRoot: ShadowRoot) {}
 
@@ -83,12 +89,15 @@ export class RegistrationModal {
             this.dialogEl.style.width = "min(420px, calc(100vw - 32px))";
             this.dialogEl.style.minWidth = "0";
             this.dialogEl.style.boxSizing = "border-box";
+            this.dialogEl.style.overflow = "auto";
 
             const headerEl = document.createElement("div");
             headerEl.style.display = "flex";
             headerEl.style.alignItems = "center";
             headerEl.style.flexWrap = "wrap";
             headerEl.style.gap = "8px";
+            headerEl.style.flexShrink = "0";
+            headerEl.style.minWidth = "0";
 
             this.badgeEl = document.createElement("span");
             this.badgeEl.className = "skk-modal-badge";
@@ -106,12 +115,15 @@ export class RegistrationModal {
             this.promptEl.textContent = okuri ? `[${stem}*${okuri}] ` : `[${yomi}] `;
             this.promptEl.style.fontSize = "14px";
             this.promptEl.style.fontWeight = "bold";
+            this.promptEl.style.overflowWrap = "anywhere";
 
             headerEl.appendChild(this.badgeEl);
             headerEl.appendChild(this.promptEl);
 
             this.inputContainerEl = document.createElement("div");
             this.inputContainerEl.className = "skk-modal-input-container";
+            this.inputContainerEl.style.flexShrink = "0";
+            this.inputContainerEl.style.minWidth = "0";
 
             this.statusLineEl = document.createElement("div");
             this.statusLineEl.className = "skk-modal-status-line";
@@ -122,6 +134,9 @@ export class RegistrationModal {
             this.statusLineEl.style.fontSize = "14px";
             this.statusLineEl.style.minHeight = "22px";
             this.statusLineEl.style.marginTop = "2px";
+            this.statusLineEl.style.flexShrink = "0";
+            this.statusLineEl.style.minWidth = "0";
+            this.statusLineEl.style.overflowWrap = "anywhere";
 
             this.modeBadgeEl = document.createElement("span");
             this.modeBadgeEl.className = "skk-modal-status-mode";
@@ -139,6 +154,9 @@ export class RegistrationModal {
             this.preeditEl.style.fontSize = "18px";
             this.preeditEl.style.fontWeight = "bold";
             this.preeditEl.style.display = "none";
+            this.preeditEl.style.maxWidth = "100%";
+            this.preeditEl.style.whiteSpace = "nowrap";
+            this.preeditEl.style.overflowX = "auto";
 
             this.candidateEl = document.createElement("span");
             this.candidateEl.className = "skk-modal-status-candidate";
@@ -311,6 +329,8 @@ export class RegistrationModal {
         preedit?: string;
         candidate?: string;
         statusText?: string;
+        candidateList?: CandidateListState;
+        candidateOptions?: CandidateListOptions;
     }): void {
         if (this.modeBadgeEl && status.mode !== undefined) {
             this.modeBadgeEl.textContent = status.mode;
@@ -327,6 +347,58 @@ export class RegistrationModal {
             this.statusTextEl.textContent = status.statusText ?? "";
             this.statusTextEl.style.display = status.statusText ? "" : "none";
         }
+        if (!this.dialogEl || typeof window === 'undefined') return;
+        const viewport = getOverlayViewport();
+        const width = Math.max(0, Math.min(520, viewport.width - Math.min(16, viewport.width / 2)));
+        this.dialogEl.style.width = `${width}px`;
+        const maxHeight = Math.max(0, viewport.height - Math.min(16, viewport.height / 2));
+        this.dialogEl.style.maxHeight = `${maxHeight}px`;
+        this.dialogEl.style.padding = `${Math.min(16, maxHeight / 4)}px ${Math.min(20, width / 4)}px`;
+        if (this.overlayEl) {
+            this.overlayEl.style.inset = 'auto';
+            this.overlayEl.style.left = `${viewport.x}px`;
+            this.overlayEl.style.top = `${viewport.y}px`;
+            this.overlayEl.style.width = `${viewport.width}px`;
+            this.overlayEl.style.height = `${viewport.height}px`;
+        }
+        if (status.candidateList && !this.candidateListView) {
+            this.candidateListView = new CandidateListView();
+            this.candidateListView.element.style.flexShrink = '0';
+            this.dialogEl.appendChild(this.candidateListView.element);
+        }
+        if (this.candidateListView) {
+            this.candidateListView.element.hidden = !status.candidateList;
+            this.candidateListView.render(status.candidateList ?? { rows: [] });
+        }
+        if (!status.candidateList) {
+            this.previousLayout = undefined;
+            if (this.preeditEl) this.preeditEl.scrollLeft = this.preeditEl.scrollWidth;
+            return;
+        }
+        const view = this.candidateListView!;
+        const detail = status.candidateList.annotationMode === 'detail';
+        if (detail) {
+            const element = view.element.querySelector<HTMLElement>('.skk-candidate-detail');
+            if (element) element.style.maxHeight = `${Math.max(0, viewport.height - 160)}px`;
+            return;
+        }
+        const measurement = measureCandidateRows(view);
+        const chromeHeight = Math.max(120, (this.dialogEl.scrollHeight || 120) - (view.element.offsetHeight || 0)) + (status.candidateList.annotationMode === 'choose' ? 28 : 0);
+        const layout = computeOverlayLayout({
+            viewport, caret: { x: viewport.x, top: viewport.y, bottom: viewport.y },
+            desiredWidth: width, ...measurement, chromeHeight,
+            candidateCount: status.candidateOptions?.pageCapacity ?? status.candidateList.rows.length,
+            previous: this.previousLayout, gap: 0,
+        });
+        this.previousLayout = layout;
+        view.setCompact(layout.annotation === 'compact');
+        if (status.candidateOptions && status.candidateOptions.pageCapacity !== layout.capacity) {
+            status.candidateOptions.onCapacityChange(layout.capacity);
+        }
+    }
+
+    public scrollCandidateAnnotation(delta: number): void {
+        this.candidateListView?.scrollDetail(delta);
     }
 
     public getStatusText(): { mode: string; preedit: string; candidate: string; statusText: string } {
@@ -359,6 +431,8 @@ export class RegistrationModal {
             } catch {}
             this.overlayEl = null;
         }
+        this.candidateListView = null;
+        this.previousLayout = undefined;
         this.dialogEl = null;
         this.badgeEl = null;
         this.promptEl = null;

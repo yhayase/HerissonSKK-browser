@@ -182,6 +182,7 @@ export class SkkContentEngine {
         e.stopPropagation();
         e.stopImmediatePropagation();
         await this.enqueueKeyAction(async () => {
+          if (isEscape && this.adapter.handleCandidateListKey('Escape')) return;
           const currentMode = this.adapter.getCurrentInputMode();
           await currentMode.ctrlGInput();
           this.adapter.updateHUD();
@@ -191,6 +192,14 @@ export class SkkContentEngine {
 
       // Pass through other shortcuts with Ctrl/Cmd/Alt (e.g. Ctrl+Z, Ctrl+C, Ctrl+V, Ctrl+A)
       if (e.ctrlKey || e.metaKey || e.altKey) {
+        return;
+      }
+
+      if (e.key.startsWith('Arrow') && this.adapter.isAnnotationHelpActive()) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        await this.enqueueKeyAction(async () => { this.adapter.handleCandidateListKey(e.key); });
         return;
       }
 
@@ -356,6 +365,12 @@ export default defineContentScript({
     };
 
     window.addEventListener('focusin', updateActiveTarget, { capture: true });
+    window.addEventListener('blur', () => engine.hud.hide());
+    const refreshOverlay = () => engine.adapter.refreshOverlayGeometry();
+    window.addEventListener('resize', refreshOverlay);
+    window.addEventListener('scroll', refreshOverlay, { capture: true, passive: true });
+    window.visualViewport?.addEventListener('resize', refreshOverlay);
+    window.visualViewport?.addEventListener('scroll', refreshOverlay);
     window.addEventListener('focusout', (e) => {
       if (!e.isTrusted) return;
       setTimeout(() => updateActiveTarget(), 0);

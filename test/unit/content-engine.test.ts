@@ -1,3 +1,4 @@
+import { withOverlayDOM } from "./mocks/OverlayDOM";
 import "fake-indexeddb/auto";
 import { describe, it, expect, beforeEach, beforeAll, vi } from "vitest";
 
@@ -5,7 +6,7 @@ let SkkContentEngine: any;
 
 const mockDocument = {
   getElementById: (_id: string) => null,
-  createElement: (_tag: string) => ({
+  createElement: (_tag: string) => withOverlayDOM({
     attachShadow: () => ({ appendChild: () => {}, querySelector: () => null }),
     appendChild: () => {},
     style: {},
@@ -101,6 +102,26 @@ describe("SkkContentEngine verified findings", () => {
       } as any;
       expect(engine.isTargetEditable(monacoChild)).toBe(true);
     });
+  });
+
+  it("注釈ヘルプの Escape と矢印を候補 UI に渡し、変換を中止しない", async () => {
+    const target = { tagName: "INPUT", type: "text", readOnly: false, disabled: false,
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 200, bottom: 30 }) } as any;
+    (globalThis as any).document.activeElement = target;
+    const mode = new HiraganaMode(engine.adapter);
+    engine.adapter.setInputMode(mode);
+    const cancel = vi.spyOn(mode, "ctrlGInput");
+    const special = vi.spyOn(engine.adapter, "handleCandidateListKey").mockReturnValue(true);
+    vi.spyOn(engine.adapter, "isAnnotationHelpActive").mockReturnValue(true);
+    for (const key of ["Escape", "ArrowDown"]) {
+      const event = { key, isTrusted: true, isComposing: false, keyCode: 0,
+        ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+        preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn() } as any;
+      await engine.handleKeyDown(event);
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+      expect(special).toHaveBeenCalledWith(key);
+    }
+    expect(cancel).not.toHaveBeenCalled();
   });
 
   describe("handleKeyDown - Security isTrusted guard & IME composition guard", () => {
