@@ -350,7 +350,10 @@ export class RegistrationModal {
         if (!this.dialogEl || typeof window === 'undefined') return;
         const viewport = getOverlayViewport();
         const width = Math.max(0, Math.min(520, viewport.width - Math.min(16, viewport.width / 2)));
-        this.dialogEl.style.width = `${width}px`;
+        // 候補一覧がある場合は内容幅を実測し、ダイアログの入力欄に必要な最小幅だけ確保します。
+        this.dialogEl.style.width = status.candidateList ? "max-content" : `${width}px`;
+        this.dialogEl.style.maxWidth = `${width}px`;
+        this.dialogEl.style.minWidth = `${Math.min(width, 280)}px`;
         const maxHeight = Math.max(0, viewport.height - Math.min(16, viewport.height / 2));
         this.dialogEl.style.maxHeight = `${maxHeight}px`;
         this.dialogEl.style.padding = `${Math.min(16, maxHeight / 4)}px ${Math.min(20, width / 4)}px`;
@@ -370,7 +373,10 @@ export class RegistrationModal {
             this.candidateListView.element.hidden = !status.candidateList;
             this.candidateListView.render(status.candidateList ?? { rows: [] });
             if (status.candidateList) {
-                this.candidateListView.setWidth(this.candidateListView.element.offsetWidth || width);
+                const contentWidth = Math.max(0, (this.dialogEl.clientWidth || this.dialogEl.offsetWidth || width) - 2 * Math.min(20, width / 4));
+                this.candidateListView.setWidth(contentWidth);
+                const measuredWidth = this.dialogEl.offsetWidth;
+                this.dialogEl.style.width = `${Math.min(width, Number.isFinite(measuredWidth) && measuredWidth > 0 ? measuredWidth : width)}px`;
             }
         }
         if (!status.candidateList) {

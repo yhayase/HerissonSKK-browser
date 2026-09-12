@@ -19,7 +19,15 @@ words[4] += "とても長い候補文字列の折り返し検証".repeat(3);
 const annotations = words.map((_, i) => i === 3 ? "全文検証の長い注釈です。".repeat(160) : `候補${i + 1}の注釈`);
 const previewWords = Array.from({ length: 12 }, (_, i) => `表示候補${String(i + 1).padStart(2, "0")}`);
 const previewAnnotations = previewWords.map((_, i) => `候補${i + 1}の短い注釈`);
-const dictionaryText = `;; coding: utf-8\n;; okuri-nasi entries.\n${Array.from({ length: 30 }, (_, i) => `おおばれいてすと${"あ".repeat(i)} /${words.map((word, n) => `${word};${annotations[n]}`).join("/")}/`).join("\n")}\nちゅうしゃくれい /${previewWords.map((word, n) => `${word};${previewAnnotations[n]}`).join("/")}/\n`;
+const inlineFixtureWords = ["インライン候補一", "インライン候補二", "インライン候補三"];
+const shortWords = [...inlineFixtureWords, "短い候補", "小さい候補", "短語候補", "短候補"];
+const mixedWords = [...inlineFixtureWords, "短語", "注釈付きの候補", "注釈なし候補", "別候補"];
+const mixedAnnotations = [undefined, undefined, undefined, "短い注釈", "長さの違う候補に付く注釈", undefined, "別の注釈"];
+const longWords = [...inlineFixtureWords, "非常に長い候補文字列の幅上限検証".repeat(5), "長い候補その二".repeat(7), "長候補", "長候補の追加行"];
+const longAnnotations = [undefined, undefined, undefined, "非常に長い注釈文字列の幅上限検証です。".repeat(12), "別の長い注釈".repeat(20), undefined, undefined];
+const pagingWords = [...inlineFixtureWords, "ページ幅を広げる長い候補文字列です", ...Array.from({ length: 20 }, (_, i) => `短語${i + 1}`)];
+const entry = (words, entryAnnotations) => words.map((word, i) => entryAnnotations?.[i] ? `${word};${entryAnnotations[i]}` : word).join("/");
+const dictionaryText = `;; coding: utf-8\n;; okuri-nasi entries.\n${Array.from({ length: 30 }, (_, i) => `おおばれいてすと${"あ".repeat(i)} /${words.map((word, n) => `${word};${annotations[n]}`).join("/")}/`).join("\n")}\nちゅうしゃくれい /${entry(previewWords, previewAnnotations)}/\nたんわ /${entry(shortWords)}/\nこんごう /${entry(mixedWords, mixedAnnotations)}/\nながさ /${entry(longWords, longAnnotations)}/\nはばけんしょう /${entry(pagingWords)}/\n`;
 const metrics = [];
 let scenario = "launch";
 let readingIndex = 0;
@@ -111,16 +119,30 @@ async function hudSnapshot(page) {
   return page.evaluate(() => {
     const root = document.querySelector("#skk-browser-ext-hud-root")?.shadowRoot;
     const visible = el => !!el && el.getBoundingClientRect().height > 0 && getComputedStyle(el).visibility !== "hidden";
-    const info = el => el ? { text: el.textContent, rect: el.getBoundingClientRect().toJSON(), display: getComputedStyle(el).display, visible: visible(el), font: getComputedStyle(el).fontSize, color: getComputedStyle(el).color, background: getComputedStyle(el).backgroundColor, scrollLeft: el.scrollLeft, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth } : null;
+    const info = el => el ? { text: el.textContent, rect: el.getBoundingClientRect().toJSON(), display: getComputedStyle(el).display, visible: visible(el), font: getComputedStyle(el).fontSize, color: getComputedStyle(el).color, background: getComputedStyle(el).backgroundColor, scrollLeft: el.scrollLeft, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, columnGap: getComputedStyle(el).columnGap } : null;
+    const contentBox = el => {
+      if (!el) return null;
+      const r = el.getBoundingClientRect(), css = getComputedStyle(el);
+      const left = r.left + parseFloat(css.borderLeftWidth) + parseFloat(css.paddingLeft);
+      const top = r.top + parseFloat(css.borderTopWidth) + parseFloat(css.paddingTop);
+      const width = el.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+      const height = el.clientHeight - parseFloat(css.paddingTop) - parseFloat(css.paddingBottom);
+      return { left, top, width, height, right: left + width, bottom: top + height };
+    };
     const modal = root?.querySelector(".skk-registration-modal-dialog");
     const box = modal ?? root?.querySelector(".skk-hud-box");
+    const host = document.querySelector("#input-test");
+    const hostRect = host?.getBoundingClientRect();
+    const hostStyle = host ? getComputedStyle(host) : null;
     const detail = box?.querySelector(".skk-candidate-detail");
     const selection = getSelection();
     const range = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
     range?.collapse(false);
     return {
       viewport: { width: innerWidth, height: innerHeight, left: visualViewport.offsetLeft, top: visualViewport.offsetTop, visualWidth: visualViewport.width, visualHeight: visualViewport.height, scale: visualViewport.scale },
-      caret: range?.getBoundingClientRect().toJSON(), value: document.querySelector("#input-test").textContent,
+      caret: range?.getBoundingClientRect().toJSON(), value: host?.textContent,
+      host: hostRect && hostStyle ? { rect: hostRect.toJSON(), contentBox: { left: hostRect.left + parseFloat(hostStyle.borderLeftWidth), top: hostRect.top + parseFloat(hostStyle.borderTopWidth), width: host.clientWidth, height: host.clientHeight } } : null,
+      list: info(box?.querySelector(".skk-candidate-list")), overlayContentBox: contentBox(box), dialogContentBox: contentBox(modal),
       box: info(box), preedit: info(box?.querySelector(modal ? ".skk-modal-status-preedit" : ".skk-preedit")), candidate: info(box?.querySelector(modal ? ".skk-modal-status-candidate" : ".skk-candidate")),
       modal: modal ? { badge: modal.querySelector(".skk-modal-badge")?.textContent, input: info([...modal.querySelectorAll(".skk-modal-input")].find(visible)), value: [...modal.querySelectorAll(".skk-modal-input")].find(visible)?.value } : null,
       rows: [...(box?.querySelectorAll(".skk-candidate-row") ?? [])].filter(visible).map(row => ({
@@ -151,9 +173,35 @@ function menu(s, start, expectedWords = words, expectedAnnotations = annotations
   for (const row of s.rows) {
     assert.ok(row.rect.top >= s.box.rect.top && row.rect.bottom <= s.box.rect.bottom + 1, `${scenario}: every keyed row visible`);
     assert.equal(row.word.font, "18px");
-    assert.equal(row.annotation.font, "14px");
-    assert.equal(row.annotationText, expectedAnnotations[expectedWords.indexOf(row.word.text)]);
-    for (const item of [row.key, row.word, row.annotation]) assert.ok(contrast(item.color, s.box.background) >= 4.5, `${scenario}: contrast ${item.color} on ${s.box.background}`);
+    const expectedAnnotation = expectedAnnotations?.[expectedWords.indexOf(row.word.text)];
+    if (expectedAnnotation) {
+      assert.ok(row.annotation?.visible, `${scenario}: annotation node is visible when expected`);
+      assert.equal(row.annotation.font, "14px");
+      assert.equal(row.annotationText, expectedAnnotation);
+    } else {
+      assert.equal(row.annotation, null, `${scenario}: no annotation node or reserved space`);
+    }
+    for (const item of [row.key, row.word, ...(row.annotation ? [row.annotation] : [])]) assert.ok(contrast(item.color, s.box.background) >= 4.5, `${scenario}: contrast ${item.color} on ${s.box.background}`);
+  }
+}
+function geometry(s) {
+  inBounds(s);
+  const bounds = s.dialogContentBox ?? s.overlayContentBox;
+  assert.ok(s.list.rect.left >= bounds.left - 1 && s.list.rect.right <= bounds.right + 1, `${scenario}: list fits overlay content box`);
+  for (let i = 0; i < s.rows.length; i++) {
+    const row = s.rows[i];
+    if (i) assert.ok(s.rows[i - 1].rect.bottom <= row.rect.top + 1, `${scenario}: rows do not overlap`);
+    for (const item of [row.key, row.word, ...(row.annotation ? [row.annotation] : [])]) {
+      assert.ok(item.rect.left >= s.list.rect.left - 1 && item.rect.right <= s.list.rect.right + 1, `${scenario}: row content fits list width`);
+      assert.ok(item.rect.top >= row.rect.top - 1 && item.rect.bottom <= row.rect.bottom + 1, `${scenario}: row content fits row height`);
+    }
+    assert.ok(row.word.scrollWidth <= row.word.clientWidth + 1, `${scenario}: candidate text is not horizontally clipped`);
+    if (row.annotation) {
+      assert.equal(row.annotation.font, "14px");
+      assert.ok(row.annotation.rect.width >= 14 && row.annotation.rect.height >= 14, `${scenario}: annotation remains readable`);
+      const a = row.annotation.rect, w = row.word.rect;
+      assert.ok(a.left >= w.right - 1 || a.top >= w.bottom - 1, `${scenario}: annotation does not overlap candidate`);
+    }
   }
 }
 async function setTheme(theme) {
@@ -166,10 +214,10 @@ async function setTheme(theme) {
   } else await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: theme }]);
   await page.waitForFunction(theme => matchMedia(`(prefers-color-scheme: ${theme})`).matches, {}, theme);
 }
-async function fresh(theme, width = 1024, height = 768, corner = "top-left") {
+async function fresh(theme, width = 1024, height = 768, corner = "top-left", pathname = "/") {
   await page.setViewport({ width, height, deviceScaleFactor: 1 });
   await setTheme(theme);
-  await page.goto(url);
+  await page.goto(`${url}${pathname.replace(/^\//, "")}`);
   await page.waitForSelector('html[data-skk-initialized="true"]');
   assert.equal(await page.evaluate(theme => matchMedia(`(prefers-color-scheme: ${theme})`).matches, theme), true);
   await page.$eval("#input-test", (el, corner) => {
@@ -205,6 +253,19 @@ async function enterMenu(preview = false) {
   await settle(page);
   const s = await hudSnapshot(page); menu(s, 3, expectedWords, expectedAnnotations); return s;
 }
+async function enterFixtureMenu(reading, expectedWords, expectedAnnotations = []) {
+  await preedit(reading);
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press(" ");
+    await page.waitForFunction(word => ((root) => root?.querySelector(".skk-modal-status-candidate") ?? root?.querySelector(".skk-candidate"))(document.querySelector("#skk-browser-ext-hud-root")?.shadowRoot)?.textContent.includes(word), {}, expectedWords[i]);
+  }
+  await page.keyboard.press(" ");
+  await page.waitForFunction(() => document.querySelector("#skk-browser-ext-hud-root")?.shadowRoot?.querySelectorAll(".skk-candidate-row").length > 0);
+  await settle(page);
+  const snapshot = await hudSnapshot(page);
+  menu(snapshot, 3, expectedWords, expectedAnnotations);
+  return snapshot;
+}
 async function changedMenu(firstWord) {
   await page.waitForFunction(word => {
     const row = document.querySelector("#skk-browser-ext-hud-root")?.shadowRoot?.querySelector(".skk-hud-box .skk-candidate-word");
@@ -227,6 +288,9 @@ async function annotationPreview(theme) {
   scenario = `${theme}-annotation-compact`;
   await page.setViewport({ width: 320, height: 170, deviceScaleFactor: 1 }); await settle(page);
   const compact = await record(scenario); menu(compact, 3, previewWords, previewAnnotations);
+  for (let i = 1; i < compact.rows.length; i++) {
+    assert.ok(compact.rows[i - 1].rect.bottom <= compact.rows[i].rect.top + 1, `${scenario}: cramped annotated rows do not overlap`);
+  }
   for (const row of compact.rows) {
     assert.equal(row.preview.display, "none", "constrained layout hides preview text");
     assert.equal(row.preview.rect.width, 0); assert.equal(row.preview.rect.height, 0);
@@ -236,9 +300,79 @@ async function annotationPreview(theme) {
     assert.equal(row.indicator.font, "14px");
     assert.ok(contrast(row.indicator.color, compact.box.background) >= 4.5);
   }
+  await page.setViewport({ width: 1024, height: 768, deviceScaleFactor: 1 }); await settle(page);
+  await combo(page, "Control", "KeyG"); await combo(page, "Control", "KeyG");
+  await enterMenu(true);
+  const restored = await record(`${theme}-annotation-restored`); menu(restored, 3, previewWords, previewAnnotations);
+  assert.ok(restored.rows.every(row => row.preview.visible), `${theme}: full-width resize restores annotation previews`);
+  const restoredWidth = restored.box.rect.width;
+  await page.setViewport({ width: 1024, height: 768, deviceScaleFactor: 1 }); await settle(page);
+  const repeated = await hudSnapshot(page);
+  assert.equal(repeated.box.rect.width, restoredWidth, `${theme}: repeated identical resize keeps full width stable`);
   await combo(page, "Control", "KeyG"); await combo(page, "Control", "KeyG");
 }
 async function exercise(theme) {
+  scenario = `${theme}-content-width`;
+  await fresh(theme);
+  const shortCandidates = await enterFixtureMenu("tanwa", shortWords);
+  await record(`${theme}-content-short`);
+  const shortWidth = shortCandidates.box.rect.width;
+  assert.ok(shortWidth < 200, `${scenario}: short unannotated candidates shrink below the legacy 520px width`);
+  assert.ok(shortCandidates.rows.every(row => row.annotation === null), `${scenario}: unannotated rows have no annotation reservation`);
+  await combo(page, "Control", "KeyG"); await combo(page, "Control", "KeyG");
+  await fresh(theme);
+  const mixedCandidates = await enterFixtureMenu("kongou", mixedWords, mixedAnnotations);
+  await record(`${theme}-content-mixed`);
+  const mixedWidth = mixedCandidates.box.rect.width;
+  assert.ok(mixedWidth > shortWidth + 8, `${scenario}: content with annotations changes natural width`);
+  const widestContent = Math.max(...mixedCandidates.rows.map(row =>
+    row.key.rect.width + row.word.rect.width + (row.annotation?.rect.width ?? 0)
+      + parseFloat(row.columnGap) * (row.annotation ? 2 : 1)));
+  const frameWidth = mixedWidth - mixedCandidates.overlayContentBox.width;
+  assert.ok(mixedWidth <= widestContent + frameWidth + 2, `${scenario}: natural width adds no empty space beyond the widest row and overlay frame`);
+  for (const row of mixedCandidates.rows) {
+    const index = mixedWords.indexOf(row.word.text);
+    if (mixedAnnotations[index]) {
+      const gap = row.annotation.rect.left - row.word.rect.right;
+      assert.ok(gap >= 0 && gap <= 12, `${scenario}: annotation has a nonnegative <=12px horizontal gap`);
+      assert.ok(row.annotation.rect.top < row.word.rect.bottom && row.annotation.rect.bottom > row.word.rect.top, `${scenario}: annotation shares the candidate row line`);
+    }
+  }
+  await combo(page, "Control", "KeyG"); await combo(page, "Control", "KeyG");
+  await fresh(theme, 1024, 768, "top-left", "/long");
+  const longCandidates = await enterFixtureMenu("nagasa", longWords, longAnnotations);
+  await record(`${theme}-content-long`);
+  assert.ok(longCandidates.box.rect.width <= longCandidates.viewport.visualWidth, `${scenario}: long fixture obeys viewport width cap`);
+  assert.ok(longCandidates.box.rect.width <= 520, `${scenario}: long fixture obeys the product width cap`);
+  assert.ok(longCandidates.box.rect.height <= longCandidates.viewport.visualHeight, `${scenario}: long fixture stays within viewport height`);
+  await combo(page, "Control", "KeyG"); await combo(page, "Control", "KeyG");
+  // 同じ文書とマウント済み HUD のまま、変換モードを切り替えます。
+  const mountedLong = await enterFixtureMenu("nagasa", longWords, longAnnotations);
+  await record(`${theme}-mounted-long`);
+  await combo(page, "Control", "KeyG"); await combo(page, "Control", "KeyG");
+  const mountedShort = await enterFixtureMenu("tanwa", shortWords);
+  await record(`${theme}-mounted-short`);
+  assert.ok(mountedShort.box.rect.width < mountedLong.box.rect.width, `${scenario}: same mounted HUD shrinks for short content`);
+  await combo(page, "Control", "KeyG"); await combo(page, "Control", "KeyG");
+  const mountedLongAgain = await enterFixtureMenu("nagasa", longWords, longAnnotations);
+  await record(`${theme}-mounted-long-again`);
+  assert.equal(mountedLongAgain.box.rect.width, mountedLong.box.rect.width, `${scenario}: same mounted HUD restores long width`);
+  await combo(page, "Control", "KeyG"); await combo(page, "Control", "KeyG");
+  // 同じ変換の実ページ容量で進み、履歴で長いページへ戻します。
+  scenario = `${theme}-same-conversion-width`;
+  const pageLong = await enterFixtureMenu("habakensyou", pagingWords);
+  await record(`${scenario}-long`);
+  await page.keyboard.press(" ");
+  const pageShort = await changedMenu(pageLong.rows[0].word.text);
+  menu(pageShort, 3 + pageLong.rows.length, pagingWords, []);
+  await record(`${scenario}-short`);
+  assert.ok(pageShort.box.rect.width < pageLong.box.rect.width, `${scenario}: advancing within one conversion shrinks width`);
+  await page.keyboard.press("x");
+  const pageBack = await changedMenu(pageShort.rows[0].word.text);
+  menu(pageBack, 3, pagingWords, []);
+  await record(`${scenario}-long-again`);
+  assert.equal(pageBack.box.rect.width, pageLong.box.rect.width, `${scenario}: history restores natural width`);
+  await combo(page, "Control", "KeyG"); await combo(page, "Control", "KeyG");
   scenario = `${theme}-short-preedit`;
   await fresh(theme); await preedit("a");
   const short = await record(scenario); inBounds(short);
@@ -315,6 +449,19 @@ async function exercise(theme) {
   await combo(page, "Control", "KeyG"); await combo(page, "Control", "KeyG");
   assert.equal((await hudSnapshot(page)).value, "|", "cancel leaves host text unchanged");
 }
+async function narrowGeometry(theme, registrationMode) {
+  for (const width of [180, 320]) {
+    scenario = `${theme}-${registrationMode ? "registration" : "normal"}-long-${width}`;
+    await fresh(theme, width, 900);
+    if (registrationMode) {
+      await preedit("mitorokuhaba");
+      await page.keyboard.press(" ");
+      await page.waitForFunction(() => document.querySelector("#skk-browser-ext-hud-root")?.shadowRoot?.querySelector(".skk-modal-badge")?.textContent === "辞書登録");
+    }
+    await enterFixtureMenu("nagasa", longWords, longAnnotations);
+    geometry(await record(scenario));
+  }
+}
 async function registration(theme) {
   scenario = `${theme}-registration`;
   await fresh(theme);
@@ -323,6 +470,14 @@ async function registration(theme) {
   await page.waitForFunction(() => document.querySelector("#skk-browser-ext-hud-root")?.shadowRoot?.querySelector(".skk-modal-badge")?.textContent === "辞書登録");
   await enterMenu();
   const normal = await record(scenario); menu(normal, 3);
+  for (const row of normal.rows) {
+    // 長い候補・注釈は折り返しを許容し、短い候補の行だけ隣接を測ります。
+    if (row.word.text === words[5]) {
+      const gap = row.annotation.rect.left - row.word.rect.right;
+      assert.ok(gap >= 0 && gap <= 12, `${scenario}: registration annotation has a nonnegative <=12px horizontal gap`);
+      assert.ok(row.annotation.rect.top < row.word.rect.bottom && row.annotation.rect.bottom > row.word.rect.top, `${scenario}: registration annotation shares the candidate row line`);
+    }
+  }
   assert.equal(normal.modal.input.font, "18px");
   assert.ok(contrast(normal.modal.input.color, normal.modal.input.background) >= 4.5);
   await page.keyboard.press("a"); await settle(page);
@@ -353,7 +508,7 @@ let testError;
 try {
   page = await launch();
   log(`browser ${await browser.version()}`);
-  for (const theme of ["light", "dark"]) { await annotationPreview(theme); await exercise(theme); await registration(theme); }
+  for (const theme of ["light", "dark"]) { await annotationPreview(theme); await exercise(theme); await registration(theme); await narrowGeometry(theme, false); await narrowGeometry(theme, true); }
   if (flavor === "chrome") {
     scenario = "chrome-page-scale-zoom";
     await fresh("light"); await enterMenu();

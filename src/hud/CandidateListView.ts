@@ -12,8 +12,6 @@ export interface CandidateListState {
     detailIndex?: number;
 }
 
-const NARROW_LAYOUT_MAX_WIDTH = 360;
-
 /** 候補行の表示だけを担当し、選択状態やキー入力は所有しません。 */
 export class CandidateListView {
     public readonly element: HTMLElement;
@@ -36,9 +34,8 @@ export class CandidateListView {
         // 共有トークンをこのコンポーネントの通常DOMでも利用できるようにします。
         style.textContent = `${OVERLAY_THEME_CSS.replaceAll(":host", ".skk-candidate-list")}
           .skk-candidate-list {
-            container-type: inline-size;
             box-sizing: border-box;
-            width: 100%;
+            width: max-content;
             max-width: 100%;
             color: var(--skk-overlay-text);
             background: var(--skk-overlay-surface);
@@ -47,11 +44,11 @@ export class CandidateListView {
             line-height: 1.4;
             overflow: hidden;
           }
-          .skk-candidate-rows { display: flex; flex-direction: column; gap: 2px; }
+          .skk-candidate-rows { display: flex; flex-direction: column; gap: 2px; width: max-content; max-width: 100%; }
           .skk-candidate-rows[hidden] { display: none; }
           .skk-candidate-row {
             display: grid;
-            grid-template-columns: max-content minmax(0, 1fr) minmax(0, 1fr);
+            grid-template-columns: max-content fit-content(100%) fit-content(240px);
             align-items: baseline;
             column-gap: 8px;
             min-width: 0;
@@ -96,13 +93,8 @@ export class CandidateListView {
             overflow-wrap: anywhere;
           }
           .skk-candidate-detail-hint { color: var(--skk-overlay-muted); font-size: 14px; margin-top: 6px; }
-          @container (max-width: 360px) {
-            .skk-candidate-row { grid-template-columns: max-content minmax(0, 1fr); }
-            .skk-candidate-annotation { grid-column: 2; }
-          }
-          /* Firefox 109 など container query 非対応環境向けの実測幅フォールバックです。 */
-          .skk-candidate-list.is-narrow .skk-candidate-row { grid-template-columns: max-content minmax(0, 1fr); }
-          .skk-candidate-list.is-narrow .skk-candidate-annotation { grid-column: 2; }
+          .skk-candidate-row.is-constrained { grid-template-columns: max-content minmax(0, 1fr); }
+          .skk-candidate-row.is-constrained .skk-candidate-annotation { grid-column: 2; }
         `;
         this.element.appendChild(style);
 
@@ -129,13 +121,35 @@ export class CandidateListView {
         this.element.appendChild(this.detailElement);
     }
 
-    /** 実測したコンポーネント幅に応じて、container query の代替レイアウトを選びます。 */
+    /** 内容領域に収まらない行は注釈を下段へ送り、確定後の幅で高さを測れるようにします。 */
     public setWidth(width: number): void {
-        const isNarrow = Number.isFinite(width) && width <= NARROW_LAYOUT_MAX_WIDTH;
-        this.element.classList.toggle("is-narrow", isNarrow);
+        if (Number.isFinite(width) && width >= 0) {
+            // 親の上限幅による折り返しを一時的に解除し、インライン配置の自然幅を測ります。
+            const maxWidth = this.element.style.maxWidth;
+            this.element.style.width = "max-content";
+            this.element.style.maxWidth = "none";
+            this.element.classList.remove("is-constrained");
+            for (const row of this.rowsElement.querySelectorAll<HTMLElement>(".skk-candidate-row")) {
+                row.classList.remove("is-constrained");
+                row.style.width = "max-content";
+                const naturalWidth = row.scrollWidth;
+                row.classList.toggle("is-constrained", naturalWidth > width + 1);
+                row.style.width = "";
+            }
+            // 段組み後に短くなる場合は、不要になった横幅も戻します。
+            const finalNaturalWidth = this.element.scrollWidth;
+            this.element.style.maxWidth = maxWidth;
+            this.element.style.width = `${Math.min(width, finalNaturalWidth || width)}px`;
+        }
     }
 
     public render(state: CandidateListState): void {
+        // 前回の確定幅を解除して、ページや注釈の変更を再び内容幅で測ります。
+        this.element.style.width = "max-content";
+        this.element.classList.remove("is-constrained");
+        // 自然幅の測定前は、前回の省略表示が注釈幅を狭めないよう全表示に戻します。
+        this.compact = false;
+        this.element.classList.remove("is-compact");
         this.lastState = { ...state, rows: state.rows.slice() };
         while (this.rowsElement.firstChild) this.rowsElement.removeChild(this.rowsElement.firstChild);
 

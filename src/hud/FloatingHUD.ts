@@ -213,7 +213,8 @@ export class FloatingHUD {
       desiredWidth: state.candidateList ? 520 : 360, rowHeight: 1, annotationHeight: 0,
       chromeHeight: 0, candidateCount: 0,
     });
-    this.container.style.width = state.candidateList ? `${initial.width}px` : 'max-content';
+    // 候補一覧は表示中ページの実寸を使い、上限を超えたときだけ制限します。
+    this.container.style.width = 'max-content';
     this.container.style.maxWidth = `${initial.width}px`;
     this.container.style.padding = `4px ${Math.min(10, initial.width / 4)}px`;
     this.container.style.height = 'auto';
@@ -229,11 +230,13 @@ export class FloatingHUD {
       this.candidateListView.render(state.candidateList ?? { rows: [] });
     }
     // 通常表示は内容に必要な幅だけ使い、制限後の実寸で位置と高さを計算します。
-    const measuredWidth = state.candidateList ? initial.width
-      : Math.min(initial.width, this.container.offsetWidth || initial.width);
+    const measuredContainerWidth = this.container.offsetWidth;
+    let measuredWidth = Math.min(initial.width,
+      Number.isFinite(measuredContainerWidth) && measuredContainerWidth > 0 ? measuredContainerWidth : initial.width);
     if (this.candidateListView && state.candidateList) {
-      const measuredComponentWidth = this.candidateListView.element.offsetWidth || measuredWidth;
-      this.candidateListView.setWidth(measuredComponentWidth);
+      const contentWidth = Math.max(0, (this.container.clientWidth || measuredWidth) - 2 * Math.min(10, initial.width / 4));
+      this.candidateListView.setWidth(contentWidth);
+      measuredWidth = Math.min(initial.width, this.container.offsetWidth || measuredWidth);
     }
     this.container.style.width = `${measuredWidth}px`;
     const detail = state.candidateList?.annotationMode === 'detail';
