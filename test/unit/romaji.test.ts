@@ -491,9 +491,8 @@ describe('RomajiInput', () => {
             expect(okuriKana).toBe('った');
 
             const okuriAlphabet = lookupOkuriAlphabet(okuriKana);
-            // First character of "った" is "っ", lookupOkuriAlphabet looks up first char
-            // Note: In kanaToAlphabet, 'っ' is not in kanaToAlphabet, so undefined
-            // If okurigana is "た", lookupOkuriAlphabet('た') -> 't'
+            // 促音に続くかなから送りあり検索用の英字を求めます。
+            expect(okuriAlphabet).toBe('t');
             expect(lookupOkuriAlphabet('た')).toBe('t');
         });
 
