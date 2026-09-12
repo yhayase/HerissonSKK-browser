@@ -1,3 +1,4 @@
+import { withOverlayDOM } from "./mocks/OverlayDOM";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SimpleMemoryJisyoProvider } from "../../src/core/skk/jisyo/SimpleMemoryJisyoProvider";
 import { BrowserEditorAdapter } from "../../src/adapter/BrowserEditorAdapter";
@@ -61,7 +62,7 @@ describe("SKK Registration & State Transitions Specification (docs/specs/registr
 
         (globalThis as any).document = {
             activeElement: mockElement,
-            createElement: () => ({
+            createElement: () => withOverlayDOM({
                 style: {},
                 classList: { add: () => {}, remove: () => {} },
                 appendChild: () => {},
@@ -111,7 +112,7 @@ describe("SKK Registration & State Transitions Specification (docs/specs/registr
         adapter.setInputMode(HiraganaMode.getInstance());
         if (inRegistration) await adapter.openRegistrationEditor("みとうろく", "");
         const mode = adapter.getCurrentInputMode();
-        const update = vi.spyOn(hud, "update");
+        const render = inRegistration ? vi.spyOn(hud, "hide") : vi.spyOn(hud, "update");
         try {
             for (const char of keys) {
                 if (char === char.toUpperCase()) await mode.upperAlphabetInput(char);
@@ -120,12 +121,13 @@ describe("SKK Registration & State Transitions Specification (docs/specs/registr
             const editor = mode instanceof RegistrationMode ? mode.getMiniBufferEditor() : adapter;
             expect(editor.getRemainingRomaji()).toBe("");
             expect(editor.getCurrentCandidate()?.word).toBe(word);
-            expect(update).toHaveBeenLastCalledWith(expect.objectContaining({
+            expect(render).toHaveBeenLastCalledWith(expect.objectContaining({
                 preedit: mode instanceof RegistrationMode ? mode.getPromptHeader() : "",
                 candidate: word + okuri,
             }));
+            expect(hud.getVisible()).toBe(!inRegistration);
         } finally {
-            update.mockRestore();
+            render.mockRestore();
         }
     });
 

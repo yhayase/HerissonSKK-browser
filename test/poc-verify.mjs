@@ -84,12 +84,12 @@ async function runVerification(port) {
     }, { timeout: 5000 });
   };
 
-  const waitForBadge = async (expected) => {
-    return page.waitForFunction((exp) => {
+  const waitForBadge = async (expected, selector = '.skk-mode-badge') => {
+    return page.waitForFunction((exp, badgeSelector) => {
       const host = document.getElementById('skk-browser-ext-hud-root');
-      const badge = host?.shadowRoot?.querySelector('.skk-mode-badge')?.textContent?.trim();
+      const badge = host?.shadowRoot?.querySelector(badgeSelector)?.textContent?.trim();
       return badge === exp;
-    }, { timeout: 5000 }, expected);
+    }, { timeout: 5000 }, expected, selector);
   };
 
   // --- Test 1: Standard <input> ---
@@ -310,22 +310,22 @@ async function runVerification(port) {
   await page.keyboard.type('awasaki');
   await page.keyboard.press('Space');
 
-  // Verify HUD badge is '辞書登録'
-  await waitForBadge('辞書登録');
+  // 登録モーダルのバッジが「辞書登録」であることを確認
+  await waitForBadge('辞書登録', '.skk-modal-badge');
   const regBadge = await page.evaluate(() => {
     const host = document.getElementById('skk-browser-ext-hud-root');
-    return host?.shadowRoot?.querySelector('.skk-mode-badge')?.textContent;
+    return host?.shadowRoot?.querySelector('.skk-modal-badge')?.textContent;
   });
-  console.log(`[Registration] HUD mode badge after Space on unregistered word: "${regBadge}"`);
+  console.log(`[Registration] Modal mode badge after Space on unregistered word: "${regBadge}"`);
 
   // Type candidate '川崎市'
   await page.keyboard.type('川崎市');
 
   const regPreedit = await page.evaluate(() => {
     const host = document.getElementById('skk-browser-ext-hud-root');
-    return host?.shadowRoot?.querySelector('.skk-preedit')?.textContent;
+    return host?.shadowRoot?.querySelector('.skk-modal-status-preedit')?.textContent;
   });
-  console.log(`[Registration] HUD preedit: "${regPreedit}"`);
+  console.log(`[Registration] Modal preedit: "${regPreedit}"`);
 
   // Press Enter to commit registration
   await page.keyboard.press('Enter');

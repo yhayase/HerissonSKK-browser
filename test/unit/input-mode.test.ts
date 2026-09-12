@@ -315,7 +315,7 @@ describe("SKK Input Modes", () => {
             await hiraganaMode.spaceInput();
             expect(hiraganaMode.getContextualName()).toBe("hiragana:menuHenkan");
             expect(mockEditor.getCandidateList().candidates.length).toBeGreaterThan(0);
-            expect(mockEditor.getCandidateList().selectionKeys).toEqual(["A", "S", "D", "F", "J", "K", "L"]);
+            expect(mockEditor.getCandidateList().selectionKeys).toEqual(["A"]);
 
             // Select candidate with selection key 'a'
             await hiraganaMode.lowerAlphabetInput("a");

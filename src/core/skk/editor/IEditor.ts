@@ -21,6 +21,17 @@ export interface IPosition {
     character: number;
 }
 
+/** 候補のページ操作と注釈表示を UI に接続します。 */
+export interface CandidateListOptions {
+    okuri: string;
+    suffix: string;
+    pageCapacity: number;
+    annotationMode: 'normal' | 'choose' | 'detail';
+    detailIndex?: number;
+    onCapacityChange: (capacity: number) => void;
+    onSpecialKey: (key: string) => boolean;
+}
+
 export interface IEditor {
     // Jisyo provider
     getJisyoProvider(): IJisyoProvider;
@@ -55,7 +66,8 @@ export interface IEditor {
 
     // Candidate management
     showCandidate(candidate: Candidate | undefined, okuri: string, suffix: string): PromiseLike<boolean | void>;
-    showCandidateList(candidateList: Candidate[], alphabetList: string[]): void;
+    showCandidateList(candidateList: Candidate[], alphabetList: string[], options?: CandidateListOptions): void;
+    scrollCandidateAnnotation?(delta: number): void;
     hideCandidateList(): void;
     fixateCandidate(candStr: string | undefined): PromiseLike<boolean>;
     clearCandidate(): PromiseLike<boolean>;
