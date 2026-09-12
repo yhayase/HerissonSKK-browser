@@ -369,6 +369,9 @@ export class RegistrationModal {
         if (this.candidateListView) {
             this.candidateListView.element.hidden = !status.candidateList;
             this.candidateListView.render(status.candidateList ?? { rows: [] });
+            if (status.candidateList) {
+                this.candidateListView.setWidth(this.candidateListView.element.offsetWidth || width);
+            }
         }
         if (!status.candidateList) {
             this.previousLayout = undefined;

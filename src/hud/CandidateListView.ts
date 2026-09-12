@@ -12,6 +12,8 @@ export interface CandidateListState {
     detailIndex?: number;
 }
 
+const NARROW_LAYOUT_MAX_WIDTH = 360;
+
 /** 候補行の表示だけを担当し、選択状態やキー入力は所有しません。 */
 export class CandidateListView {
     public readonly element: HTMLElement;
@@ -98,6 +100,9 @@ export class CandidateListView {
             .skk-candidate-row { grid-template-columns: max-content minmax(0, 1fr); }
             .skk-candidate-annotation { grid-column: 2; }
           }
+          /* Firefox 109 など container query 非対応環境向けの実測幅フォールバックです。 */
+          .skk-candidate-list.is-narrow .skk-candidate-row { grid-template-columns: max-content minmax(0, 1fr); }
+          .skk-candidate-list.is-narrow .skk-candidate-annotation { grid-column: 2; }
         `;
         this.element.appendChild(style);
 
@@ -122,6 +127,12 @@ export class CandidateListView {
         this.detailHintElement.textContent = "Escで候補一覧に戻る";
         this.detailElement.append(this.detailWordElement, this.detailAnnotationElement, this.detailHintElement);
         this.element.appendChild(this.detailElement);
+    }
+
+    /** 実測したコンポーネント幅に応じて、container query の代替レイアウトを選びます。 */
+    public setWidth(width: number): void {
+        const isNarrow = Number.isFinite(width) && width <= NARROW_LAYOUT_MAX_WIDTH;
+        this.element.classList.toggle("is-narrow", isNarrow);
     }
 
     public render(state: CandidateListState): void {

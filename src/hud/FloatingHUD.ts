@@ -231,6 +231,10 @@ export class FloatingHUD {
     // 通常表示は内容に必要な幅だけ使い、制限後の実寸で位置と高さを計算します。
     const measuredWidth = state.candidateList ? initial.width
       : Math.min(initial.width, this.container.offsetWidth || initial.width);
+    if (this.candidateListView && state.candidateList) {
+      const measuredComponentWidth = this.candidateListView.element.offsetWidth || measuredWidth;
+      this.candidateListView.setWidth(measuredComponentWidth);
+    }
     this.container.style.width = `${measuredWidth}px`;
     const detail = state.candidateList?.annotationMode === 'detail';
     const measurement = this.candidateListView && state.candidateList && !detail
