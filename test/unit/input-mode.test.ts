@@ -124,6 +124,53 @@ describe("SKK Input Modes", () => {
     });
 
     describe("3. Okuri-ari conversion", () => {
+        it.each([
+            ["TsukaTt", "e", "つかt", "使", "って"],
+            ["IKk", "u", "いk", "行", "っく"],
+            ["TsukaTT", "e", "つかt", "使", "って"],
+        ])("%s は送り仮名が完成するまで変換しません", async (prefix, last, key, word, okuri) => {
+            await mockEditor.getJisyoProvider().registerCandidate(key, new Candidate(word));
+            await mockEditor.getJisyoProvider().registerCandidate("つか", new Candidate("塚"));
+            for (const char of prefix) {
+                if (char === char.toUpperCase()) await hiraganaMode.upperAlphabetInput(char);
+                else await hiraganaMode.lowerAlphabetInput(char);
+            }
+            expect(hiraganaMode.getContextualName()).toBe("hiragana:midashigo:okurigana");
+            expect(mockEditor.getCurrentCandidate()).toBeUndefined();
+            await hiraganaMode.lowerAlphabetInput(last);
+            expect(hiraganaMode.getContextualName()).toBe("hiragana:inlineHenkan");
+            expect(mockEditor.getCurrentCandidate()?.word).toBe(word);
+            expect(mockEditor.getAppendedSuffix()).toBe(okuri);
+            await hiraganaMode.ctrlJInput();
+            expect(mockEditor.getCurrentText()).toBe(word + okuri);
+        });
+
+        it("促音の入力中も削除して送り仮名を入力し直せます", async () => {
+            await mockEditor.getJisyoProvider().registerCandidate("つかt", new Candidate("使"));
+            for (const char of "TsukaTt") {
+                if (char === char.toUpperCase()) await hiraganaMode.upperAlphabetInput(char);
+                else await hiraganaMode.lowerAlphabetInput(char);
+            }
+            await hiraganaMode.backspaceInput();
+            await hiraganaMode.backspaceInput();
+            expect(hiraganaMode.getContextualName()).toBe("hiragana:midashigo:gokan");
+            await hiraganaMode.upperAlphabetInput("T");
+            await hiraganaMode.lowerAlphabetInput("t");
+            await hiraganaMode.lowerAlphabetInput("e");
+            expect(mockEditor.getAppendedSuffix()).toBe("って");
+            await hiraganaMode.ctrlGInput();
+            expect(mockEditor.getCurrentText()).toBe("▽つかって");
+        });
+
+        it("促音の入力中に確定しても生成済みのかなを失いません", async () => {
+            for (const char of "TsukaTt") {
+                if (char === char.toUpperCase()) await hiraganaMode.upperAlphabetInput(char);
+                else await hiraganaMode.lowerAlphabetInput(char);
+            }
+            await hiraganaMode.ctrlJInput();
+            expect(mockEditor.getCurrentText()).toBe("つかっ");
+        });
+
         it("converts with uppercase okuri trigger (I -> K -> u -> 行く)", async () => {
             // Register 'いk' with candidate '行' (okuri 'く' cooks to '行く')
             await mockEditor.getJisyoProvider().registerCandidate("いk", new Candidate("行"));
