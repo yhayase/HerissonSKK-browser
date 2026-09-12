@@ -32,6 +32,8 @@ export class InlineHenkanMode extends AbstractHenkanMode {
 
     public static async create(context: AbstractKanaMode, editor: IEditor, prevMode: AbstractMidashigoMode, origMidashigo: string, okuriAlphabet: string, jisyoEntry: Entry, okuri: string, optionalSuffix?: string): Promise<InlineHenkanMode> {
         const mode = new InlineHenkanMode(context, editor, prevMode, origMidashigo, okuriAlphabet, jisyoEntry, okuri, optionalSuffix);
+        // 候補表示へ移るときは、読み入力中の表示用ローマ字を消去します。
+        editor.showRemainingRomaji("", false, 0);
         await mode.showCandidate(context);
         return mode;
     }
