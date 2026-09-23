@@ -13,3 +13,6 @@ textarea-caret: MIT（textarea-caret.txt）
 WXT 0.21.4 および @wxt-dev/browser 0.2.9: MIT（wxt.txt）
 Vite 8.2.2 の modulepreload-polyfill: MIT（vite.txt）
 
+
+HerissonSKK アイコン: 本体 MIT の対象外（HerissonSKK-icon.txt）
+  公式アプリの配布・紹介には利用可、別製品への流用は作者の個別許可が必要です。

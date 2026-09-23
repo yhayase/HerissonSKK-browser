@@ -1,0 +1,7 @@
+# HerissonSKK アイコンの利用条件
+
+対象は `assets/brand/` と `public/icon/` にある HerissonSKK のアイコン画像です。本体コード・付属文書の MIT ライセンスには含めません。
+
+HerissonSKK 公式アプリの配布、および HerissonSKK の紹介・レビュー・利用案内に必要な範囲で、アイコンの複製・掲載・サイズ調整を許可します。
+
+別の製品・サービスのアイコンやブランド素材への流用には、作者の個別の許可が必要です。利用許可の問い合わせ先は https://github.com/yhayase/HerissonSKK-browser/issues です。

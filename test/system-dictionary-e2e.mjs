@@ -165,7 +165,8 @@ const combo = async (page, modifier, key) => { await page.keyboard.down(modifier
 const inputPage = async () => { const page = await browser.newPage(); await page.goto(url); await page.waitForSelector('html[data-skk-initialized="true"]'); await page.focus('#input-test'); await combo(page, 'Control', 'j'); return page; };
 const convert = async (page, roman = 'tesuto') => { await page.bringToFront(); await page.focus('#input-test'); await combo(page, 'Shift', `Key${roman[0].toUpperCase()}`); await page.keyboard.type(roman.slice(1)); await page.keyboard.press(' '); await page.waitForFunction(() => !!document.querySelector('#skk-browser-ext-hud-root')?.shadowRoot?.querySelector('.skk-candidate')?.textContent); };
 const hud = (page) => page.evaluate(() => document.querySelector('#skk-browser-ext-hud-root').shadowRoot.textContent);
-const cancel = async (page) => { await combo(page, 'Control', 'g'); await combo(page, 'Control', 'g'); };
+// 非表示タブへの合成操作では、実ユーザーのキー入力と異なりフォーカス保護で破棄されます。
+const cancel = async (page) => { await page.bringToFront(); await page.focus('#input-test'); await page.waitForFunction(() => document.hasFocus()); await combo(page, 'Control', 'g'); await combo(page, 'Control', 'g'); };
 // 取得境界だけを制御し、設定操作・解析・保存は実際の拡張機能に任せます。
 const transport = async (mode, body = '') => {
   const target = flavor === 'chrome' ? await (await browser.waitForTarget((t) => t.type() === 'service_worker')).worker() : options;
