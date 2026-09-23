@@ -21,7 +21,7 @@ Firefox の ID は `herissonskk@yhayase` を維持します。同じ ID の既�
 
 ## 公開前に残る確認
 
-- GitHub リポジトリを公開し、以下の URL を未ログインで確認します。
+- GitHub リポジトリは公開済みです。以下の問い合わせ・プライバシーポリシーとリポジトリの URL は認証なしでアクセスできることを確認しました。
   - 問い合わせ: https://github.com/yhayase/HerissonSKK-browser/issues
   - プライバシーポリシー: https://github.com/yhayase/HerissonSKK-browser/blob/main/docs/privacy-policy.md
   - 操作説明: https://github.com/yhayase/HerissonSKK-browser/blob/main/README.md
@@ -29,4 +29,4 @@ Firefox の ID は `herissonskk@yhayase` を維持します。同じ ID の既�
 - Firefox 0.1.2 の署名済み XPI を取得し、提出物との一致を確認しました。保存先は `.local/releases/0.1.2/herissonskk-browser-0.1.2-firefox-signed.xpi` です。作者の判断により、Android の追加確認は今回のリリース条件から外しました。
 - Chrome 開発者登録・提出状況を確認し、準備が整ったストアから提出します。
 
-非掲載版 0.1.2 の提出と署名済み XPI の取得は完了しました。ストア掲載、GitHub の公開設定変更、署名済み 0.1.2 の実機確認は未実施です。
+非掲載版 0.1.2 の提出と署名済み XPI の取得は完了しました。GitHub リポジトリの公開は完了しました。ストア掲載と署名済み 0.1.2 の実機確認は未実施です。

@@ -28,7 +28,7 @@ Chrome 用 ZIP と Firefox 用 ZIP は `.output/` に生成します。Firefox �
 - アイコンは公式アプリの配布・紹介に利用できます。別製品への流用は個別許可とし、利用条件を配布物に含めます。本体は MIT です。
 - Firefox の掲載手続きと Chrome の開発者登録・提出を進めます。Chrome の登録状況は未確認です。
 
-本体 GitHub リポジトリは非公開であることを確認しました。プライバシーポリシーに加え、操作説明と不具合報告の公開先も確定し、未ログインでアクセスできることを提出前に確認します。
+本体 GitHub リポジトリは公開済みです。リポジトリ・プライバシーポリシー・Issues は認証なしでアクセスできることを確認しました。
 
 Firefox の最小バージョンは現在 `109.0` です。データ収集なしの宣言は PC の Firefox 140、Android の Firefox 142 より前では未対応として lint 警告になります。警告を消すことだけを目的に最小バージョンは引き上げず、公開時に実際の対応範囲を確認します。
 
@@ -192,3 +192,14 @@ Android の追加確認は作者の判断で省略しました。次は GitHub �
 GitHub に `v0.1.2` のドラフトリリースを作成しました。対象コミットは `1003f5289f6e6d84ce74ee31987a29aeae551547` です。署名済み Firefox XPI、Chrome／Firefox 提出 ZIP、審査用ソース ZIP、`SHA256SUMS.txt` の 5 ファイルを添付しました。配布物はローカルの `.local/releases/0.1.2/` にも保持しています。
 
 リポジトリとリリースはまだ公開していません。リポジトリ公開後に、README・プライバシーポリシー・Issues を未ログインで確認し、ストア掲載用リンクを確定します。
+
+
+## GitHub リポジトリの公開（2026-09-23）
+
+作者の承認により `yhayase/HerissonSKK-browser` を Public に変更しました。GitHub API で `PUBLIC` と Issues 有効を確認し、認証情報を使わない HTTP リクエストで以下の URL がすべて 200 を返すことを確認しました。
+
+- https://github.com/yhayase/HerissonSKK-browser
+- https://github.com/yhayase/HerissonSKK-browser/blob/main/docs/privacy-policy.md
+- https://github.com/yhayase/HerissonSKK-browser/issues
+
+GitHub の 0.1.2 リリースはドラフトのままです。リポジトリ公開とは別に、リリース公開とストア掲載を進めます。
