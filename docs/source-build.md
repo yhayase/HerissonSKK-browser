@@ -1,8 +1,8 @@
-# HerissonSKK 0.1.2 — Firefox 審査用ビルド手順
+# HerissonSKK 0.1.3 — Firefox 審査用ビルド手順
 
-Firefox 拡張 ID は `herissonskk@yhayase` です。同じ ID の署名済み 0.1.1 からの更新版です。
+Firefox 拡張 ID は `herissonskk@yhayase` です。同じ ID の署名済み非掲載版 0.1.2 からの更新版です。AMO 掲載用として提出します。
 
-このソースは Firefox 用の未署名配布物 `herissonskk-browser-0.1.2-firefox.zip` を再現するためのものです。TypeScript を WXT／Vite で変換・結合・最小化します。独自の難読化処理はありません。
+このソースは Firefox 用の未署名配布物 `herissonskk-browser-0.1.3-firefox.zip` を再現するためのものです。TypeScript を WXT／Vite で変換・結合・最小化します。独自の難読化処理はありません。
 
 ## 確認済み環境
 
@@ -44,7 +44,7 @@ bash scripts/release/build-firefox.sh
 ## 結果の照合
 
 - 拡張機能のファイル: `.output/firefox-mv2/`
-- 提出用 ZIP: `.output/herissonskk-browser-0.1.2-firefox.zip`
+- 提出用 ZIP: `.output/herissonskk-browser-0.1.3-firefox.zip`
 
 ZIP を展開したファイルのパスと内容を提出物と比較してください。ZIP の時刻情報や圧縮形式によってアーカイブ全体のハッシュは変わる場合があります。Mozilla が後から付与する署名は、このビルドでは生成しません。
 

@@ -11,7 +11,7 @@ npm run zip
 npm run zip:firefox
 ```
 
-Chrome 用 ZIP と Firefox 用 ZIP は `.output/` に生成します。Firefox 用 ZIP は未署名です。公開・更新時は公開する変更とバージョンを確定し、提出したファイルのハッシュとコミットを記録します。現在の公開候補は `0.1.2` です。`0.1.0`・`0.1.1` は署名済み試用版として使用しました。
+Chrome 用 ZIP と Firefox 用 ZIP は `.output/` に生成します。Firefox 用 ZIP は未署名です。公開・更新時は公開する変更とバージョンを確定し、提出したファイルのハッシュとコミットを記録します。現在のストア掲載用バージョンは `0.1.3` です。`0.1.2` は署名済み非掲載版です。`0.1.0`・`0.1.1` は署名済み試用版として使用しました。
 
 通常ビルドと ZIP の両方から `test.html` とテンプレート画像 `wxt.svg` を除外します。試験ページは `test/browser/test.html` をローカル HTTP サーバーから配信するため、開発・E2E では引き続き利用できます。manifest の公開リソースからも `test.html` を除外しています。
 
@@ -203,3 +203,18 @@ GitHub に `v0.1.2` のドラフトリリースを作成しました。対象コ
 - https://github.com/yhayase/HerissonSKK-browser/issues
 
 GitHub の 0.1.2 リリースはドラフトのままです。リポジトリ公開とは別に、リリース公開とストア掲載を進めます。
+
+
+## Firefox 掲載用 0.1.3 の準備（2026-09-23）
+
+AMO は同じアドオンの登録済みバージョン番号を配布チャネルにかかわらず重複として扱うため、非掲載版 0.1.2 に続く掲載用バージョンを 0.1.3 としました。拡張 ID は `herissonskk@yhayase` のままです。[掲載申請の手順と入力内容](./store-submission-0.1.3.md)を準備しました。
+
+Chrome／Firefox のパッケージを 0.1.2 と比較し、変更が manifest.json の version だけであることを確認しました。残る各 25 ファイルはバイト単位で同一です。このため入力動作の E2E は再実行せず、0.1.2 の検証結果を引き継ぎます。Android の追加確認も行いません。
+
+AMO ソース ZIP を空の独立ディレクトリに展開し、npm ci から再ビルドした結果、Firefox パッケージの全 26 ファイルが一致しました。Firefox lint はエラー 0 件、既知の最小バージョン警告 2 件です。提出物とチェックサムは `.local/releases/0.1.3/` に保存しました。AMO 掲載申請は作者が行うため、まだ提出していません。
+
+```text
+eb2b557c6d431f6adc658a618a356e72843660dea828ca485cc1a9b13b768476  herissonskk-browser-0.1.3-chrome.zip
+26aa7f417ddb066207800ed3f8332de288b749d7ce25622230de88d5bfe2c2a6  herissonskk-browser-0.1.3-firefox.zip
+188e5885c0b647b177f3a639425be9765d2df23c58301fd163e5edcd47a49901  herissonskk-browser-0.1.3-sources.zip
+```
