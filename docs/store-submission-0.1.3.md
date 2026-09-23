@@ -33,6 +33,7 @@
 - アイコン: `assets/brand/HerissonSKK-512.png`
 - 変換: `assets/store/firefox-01-conversion.png`
 - 単語登録: `assets/store/firefox-02-registration.png`
+- 辞書設定: `assets/store/firefox-03-dictionaries.png`
 - VS Code for the Web: `assets/store/firefox-04-vscode.png`
 
 ## 審査担当者へのメモ
