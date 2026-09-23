@@ -58,7 +58,7 @@
 
 ## 現在の到達点と次の作業
 
-Phase 1〜3.1 は完了しています。Phase 3.1 の実装・検証・PR レビューでは、JSON 辞書対応、更新失敗時の既存辞書保持、学習を保持する移行を確認しています（[PR #1](https://github.com/yhayase/herissonskk-browser/pull/1)）。
+Phase 1〜3.1 は完了しています。Phase 3.1 の実装・検証・PR レビューでは、JSON 辞書対応、更新失敗時の既存辞書保持、学習を保持する移行を確認しています（[PR #1](https://github.com/yhayase/HerissonSKK-browser/pull/1)）。
 
 その後、システム辞書の種類・形式・取得元・順序・有効状態、任意 URL とローカルファイルからの追加・再インポート、候補診断を実装しています。[システム辞書の設定と検証](./system-dictionaries.md)を参照してください。
 

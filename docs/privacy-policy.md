@@ -30,4 +30,4 @@ Web ページに入力・確定した文字は、そのページから利用で�
 
 ## 問い合わせ
 
-[GitHub Issues](https://github.com/yhayase/herissonskk-browser/issues) で受け付けます。投稿は公開されるため、個人情報や秘密の入力内容を記載しないでください。
+[GitHub Issues](https://github.com/yhayase/HerissonSKK-browser/issues) で受け付けます。投稿は公開されるため、個人情報や秘密の入力内容を記載しないでください。

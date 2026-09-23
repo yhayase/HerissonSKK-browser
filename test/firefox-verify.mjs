@@ -288,12 +288,12 @@ async function main() {
       }, 5000);
     };
 
-    const waitForBadge = async (expected) => {
-      return client.waitFor((exp) => {
+    const waitForBadge = async (expected, selector = '.skk-mode-badge') => {
+      return client.waitFor((exp, badgeSelector) => {
         const host = document.getElementById('skk-browser-ext-hud-root');
-        const badge = host?.shadowRoot?.querySelector('.skk-mode-badge')?.textContent?.trim();
+        const badge = host?.shadowRoot?.querySelector(badgeSelector)?.textContent?.trim();
         return badge === exp;
-      }, 5000, 100, [expected]);
+      }, 5000, 100, [expected, selector]);
     };
 
     // --- Test 1: Standard <input> ---
@@ -490,22 +490,22 @@ async function main() {
     await client.type('awasaki');
     await client.pressKey(KEYS.SPACE);
 
-    // Verify HUD badge is '辞書登録'
-    await waitForBadge('辞書登録');
+    // 登録モーダルのバッジが「辞書登録」であることを確認
+    await waitForBadge('辞書登録', '.skk-modal-badge');
     const regBadge = await client.executeScript(() => {
       const host = document.getElementById('skk-browser-ext-hud-root');
-      return host?.shadowRoot?.querySelector('.skk-mode-badge')?.textContent;
+      return host?.shadowRoot?.querySelector('.skk-modal-badge')?.textContent;
     });
-    console.log(`[Registration] HUD mode badge after Space on unregistered word: "${regBadge}"`);
+    console.log(`[Registration] Modal mode badge after Space on unregistered word: "${regBadge}"`);
 
     // Type candidate '川崎市'
     await client.type('川崎市');
 
     const regPreedit = await client.executeScript(() => {
       const host = document.getElementById('skk-browser-ext-hud-root');
-      return host?.shadowRoot?.querySelector('.skk-preedit')?.textContent;
+      return host?.shadowRoot?.querySelector('.skk-modal-status-preedit')?.textContent;
     });
-    console.log(`[Registration] HUD preedit: "${regPreedit}"`);
+    console.log(`[Registration] Modal preedit: "${regPreedit}"`);
 
     // Press Enter to commit registration
     await client.pressKey(KEYS.ENTER);

@@ -1,3 +1,4 @@
+import { withOverlayDOM } from "./mocks/OverlayDOM";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SimpleMemoryJisyoProvider } from "../../src/core/skk/jisyo/SimpleMemoryJisyoProvider";
 import { BrowserEditorAdapter } from "../../src/adapter/BrowserEditorAdapter";
@@ -165,7 +166,7 @@ describe("RegistrationModal & Target Coordination (TC-MODAL-01 .. TC-MODAL-08)",
                     getBoundingClientRect: () => ({ left: 100, top: 200, right: 300, bottom: 230, width: 200, height: 30 }),
                     attachShadow: () => mockShadow
                 };
-                return el;
+                return withOverlayDOM(el);
             },
             attachShadow: () => mockShadow
         };

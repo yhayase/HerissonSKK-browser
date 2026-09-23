@@ -7,6 +7,9 @@ export interface CaretRect {
   x: number;
   y: number;
   height: number;
+  /** 入力要素の余白を除いた、キャレット行の上下端です。 */
+  top?: number;
+  bottom?: number;
 }
 
 let measureCanvas: HTMLCanvasElement | null = null;
@@ -78,11 +81,21 @@ export function getActiveCaretCoordinates(target?: Element | null): CaretRect | 
       // Clamp inside element bounding box
       const clampedX = Math.max(rect.left + borderLeft, Math.min(caretX, rect.right));
       const caretHeight = parseFloat(computed.fontSize) * 1.2 || 18;
+      const lineHeight = parseFloat(computed.lineHeight) || caretHeight;
+      const paddingTop = parseFloat(computed.paddingTop) || 0;
+      const paddingBottom = parseFloat(computed.paddingBottom) || 0;
+      const borderTop = parseFloat(computed.borderTopWidth) || 0;
+      const borderBottom = parseFloat(computed.borderBottomWidth) || 0;
+      const innerTop = rect.top + borderTop + paddingTop;
+      const innerBottom = rect.bottom - borderBottom - paddingBottom;
+      const lineTop = innerTop + Math.max(0, (innerBottom - innerTop - lineHeight) / 2);
 
       return {
         x: clampedX,
         y: rect.bottom,
         height: caretHeight,
+        top: lineTop,
+        bottom: lineTop + lineHeight,
       };
     } catch {
       const rect = active.getBoundingClientRect();

@@ -46,7 +46,7 @@ AI は開発・制作時に利用しています。拡張機能の日本語変�
 
 ## 不具合の報告
 
-[GitHub Issues](https://github.com/yhayase/herissonskk-browser/issues) に、OS・ブラウザー・拡張機能のバージョン、再現する操作、期待する結果と実際の結果を記載してください。入力例には、公開して差し支えない試験用の語句を使ってください。
+[GitHub Issues](https://github.com/yhayase/HerissonSKK-browser/issues) に、OS・ブラウザー・拡張機能のバージョン、再現する操作、期待する結果と実際の結果を記載してください。入力例には、公開して差し支えない試験用の語句を使ってください。
 
 ## プライバシー
 

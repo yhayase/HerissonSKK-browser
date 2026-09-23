@@ -1,5 +1,5 @@
 import * as wanakana from "wanakana";
-import type { IEditor, IPosition, IRange } from "../core/skk/editor/IEditor";
+import type { CandidateListOptions, IEditor, IPosition, IRange } from "../core/skk/editor/IEditor";
 import { DeleteLeftResult } from "../core/skk/editor/IEditor";
 import { EditorFactory } from "../core/skk/editor/EditorFactory";
 import type { IJisyoProvider } from "../core/skk/jisyo/IJisyoProvider";
@@ -12,6 +12,7 @@ import { KatakanaMode } from "../core/skk/input-mode/KatakanaMode";
 import { ZeneiMode } from "../core/skk/input-mode/ZeneiMode";
 import { AsciiMode } from "../core/skk/input-mode/AsciiMode";
 import { RegistrationMode, MAX_REGISTRATION_DEPTH } from "../core/skk/input-mode/henkan/RegistrationMode";
+import type { CandidateListState } from "../hud/CandidateListView";
 import { FloatingHUD } from "../hud/FloatingHUD";
 import { RegistrationModal } from "../hud/RegistrationModal";
 import type { IEditorTarget, IEditorSelectionSnapshot } from "./targets/IEditorTarget";
@@ -56,6 +57,7 @@ export class BrowserEditorAdapter implements IEditor {
     private currentSuffix: string = "";
     private candidateList: Candidate[] = [];
     private candidateAlphabetList: string[] = [];
+    private candidateListOptions?: CandidateListOptions;
     private lastErrorMessage: string = "";
     private lastStatus: string = "";
     private fixatedCandidateText: string = "";
@@ -132,6 +134,7 @@ export class BrowserEditorAdapter implements IEditor {
         this.currentCandidate = undefined;
         this.currentOkuri = "";
         this.currentSuffix = "";
+        this.candidateListOptions = undefined;
         this.candidateList = [];
         this.candidateAlphabetList = [];
         if (this.lastStatus.startsWith("[辞書登録:")) {
@@ -170,9 +173,10 @@ export class BrowserEditorAdapter implements IEditor {
         return this.currentCandidate;
     }
 
-    public getCandidateList(): { candidates: Candidate[]; selectionKeys: string[] } {
+    public getCandidateList(): { candidates: Candidate[]; selectionKeys: string[]; options?: CandidateListOptions } {
         return {
             candidates: this.candidateList,
+            ...(this.candidateListOptions ? { options: this.candidateListOptions } : {}),
             selectionKeys: this.candidateAlphabetList
         };
     }
@@ -475,16 +479,43 @@ export class BrowserEditorAdapter implements IEditor {
         return true;
     }
 
-    public showCandidateList(candidateList: Candidate[], alphabetList: string[]): void {
+    public showCandidateList(candidateList: Candidate[], alphabetList: string[], options?: CandidateListOptions): void {
+        this.candidateListOptions = options;
         this.candidateList = candidateList;
         this.candidateAlphabetList = alphabetList;
         this.updateHUD();
     }
 
     public hideCandidateList(): void {
+        this.candidateListOptions = undefined;
         this.candidateList = [];
         this.candidateAlphabetList = [];
         this.updateHUD();
+    }
+
+    private getActiveCandidateOptions(): CandidateListOptions | undefined {
+        return this.currentInputMode instanceof RegistrationMode
+            ? this.currentInputMode.getMiniBufferEditor().getCandidateList().options
+            : this.candidateListOptions;
+    }
+
+    public isAnnotationHelpActive(): boolean {
+        const options = this.getActiveCandidateOptions();
+        return !!options && options.annotationMode !== 'normal';
+    }
+
+    public handleCandidateListKey(key: string): boolean {
+        return this.getActiveCandidateOptions()?.onSpecialKey(key) ?? false;
+    }
+
+    public scrollCandidateAnnotation(delta: number): void {
+        if (this.registrationModal?.isOpen()) this.registrationModal.scrollCandidateAnnotation(delta);
+        else this.hud.scrollCandidateAnnotation(delta);
+    }
+
+    /** 表示中だけ座標を更新し、フォーカスを失った HUD を再表示しません。 */
+    public refreshOverlayGeometry(): void {
+        if (this.hud.getVisible() || this.registrationModal?.isOpen()) this.updateHUD();
     }
 
     public async fixateCandidate(candStr: string | undefined): Promise<boolean> {
@@ -506,6 +537,7 @@ export class BrowserEditorAdapter implements IEditor {
         this.currentCandidate = undefined;
         this.currentOkuri = "";
         this.currentSuffix = "";
+        this.candidateListOptions = undefined;
         this.candidateList = [];
         this.candidateAlphabetList = [];
 
@@ -636,7 +668,7 @@ export class BrowserEditorAdapter implements IEditor {
     }
 
     public updateHUD(): void {
-        if (this.currentInputMode instanceof AsciiMode) {
+        if (this.currentInputMode instanceof AsciiMode || (typeof document !== 'undefined' && document.hasFocus?.() === false)) {
             this.hud.hide();
             return;
         }
@@ -656,13 +688,15 @@ export class BrowserEditorAdapter implements IEditor {
             typeof window !== "undefined" && window.innerHeight ? window.innerHeight : 600;
 
         const x = coords?.x ?? 20;
-        const y = coords ? coords.y + 4 : viewportHeight - 50;
+        const y = coords?.bottom ?? coords?.y ?? viewportHeight - 50;
 
         const modeBadge = this.getModeBadgeText();
 
         let preeditStr = "";
         let candidateText: string | undefined = undefined;
         let statusText: string = "";
+        let candidateListState: CandidateListState | undefined;
+        let candidateOptions: CandidateListOptions | undefined;
 
         const modal = this.registrationModal;
 
@@ -675,9 +709,7 @@ export class BrowserEditorAdapter implements IEditor {
             if (mb.getCurrentCandidate()) {
                 const cand = mb.getCurrentCandidate();
                 candidateText = cand ? cand.word + mb.getCurrentOkuri() + mb.getCurrentSuffix() : undefined;
-                if (mb.getRemainingRomaji()) {
-                    mbPreedit += mb.getRemainingRomaji();
-                }
+
             } else if (mb.isInMidashigo()) {
                 mbPreedit += "▽" + mb.getMidashigoText() + (mb.isOkuriStateActive() ? "*" : "") + mb.getRemainingRomaji();
             } else if (mb.getRemainingRomaji()) {
@@ -686,9 +718,17 @@ export class BrowserEditorAdapter implements IEditor {
 
             const candList = mb.getCandidateList();
             if (candList.selectionKeys.length > 0) {
-                statusText = candList.selectionKeys
-                    .map((key, i) => `${key}:${candList.candidates[i]?.word ?? ""}`)
-                    .join(" ");
+                candidateOptions = candList.options;
+                candidateListState = {
+                    rows: candList.candidates.map((candidate, i) => ({
+                        key: candList.selectionKeys[i]!,
+                        word: candidate.word + (candidateOptions?.okuri ?? mb.getCurrentOkuri()) + (candidateOptions?.suffix ?? mb.getCurrentSuffix()),
+                        annotation: candidate.annotation,
+                    })),
+                    annotationMode: candidateOptions?.annotationMode,
+                    detailIndex: candidateOptions?.detailIndex,
+                };
+                mbPreedit = "";
             } else if (mb.getCurrentCandidate()?.annotation) {
                 statusText = mb.getCurrentCandidate()?.annotation || "";
             } else {
@@ -706,14 +746,21 @@ export class BrowserEditorAdapter implements IEditor {
                     mode: internalBadge,
                     preedit: mbPreedit,
                     candidate: candidateText,
-                    statusText: statusText || undefined
+                    statusText: statusText || undefined,
+                    candidateList: candidateListState,
+                    candidateOptions,
                 });
+                this.hud.hide({ x, y, mode: modeBadge,
+                    preedit: prompt + mb.getCommittedText() + mbPreedit,
+                    candidate: candidateText, status: statusText || undefined,
+                    candidateList: candidateListState, candidateOptions });
+                return;
             }
 
             preeditStr = prompt + mb.getCommittedText() + mbPreedit;
         } else {
             if (this.currentCandidate) {
-                preeditStr = this.remainingRomaji ? this.remainingRomaji : "";
+                preeditStr = "";
             } else if (this.inMidashigo) {
                 preeditStr = "▽" + this.midashigoText + (this.isOkuri ? "*" : "") + this.remainingRomaji;
             } else if (this.remainingRomaji) {
@@ -726,9 +773,18 @@ export class BrowserEditorAdapter implements IEditor {
 
             statusText = this.currentCandidate?.annotation || this.lastStatus || "";
             if (this.candidateAlphabetList.length > 0) {
-                statusText = this.candidateAlphabetList
-                    .map((key, i) => `${key}:${this.candidateList[i]?.word ?? ""}`)
-                    .join(" ");
+                candidateOptions = this.candidateListOptions;
+                candidateListState = {
+                    rows: this.candidateList.map((candidate, i) => ({
+                        key: this.candidateAlphabetList[i]!,
+                        word: candidate.word + (candidateOptions?.okuri ?? this.currentOkuri) + (candidateOptions?.suffix ?? this.currentSuffix),
+                        annotation: candidate.annotation,
+                    })),
+                    annotationMode: candidateOptions?.annotationMode,
+                    detailIndex: candidateOptions?.detailIndex,
+                };
+                preeditStr = "";
+                statusText = "";
             }
         }
 
@@ -736,6 +792,9 @@ export class BrowserEditorAdapter implements IEditor {
             x,
             y,
             mode: modeBadge,
+            caretTop: coords?.top ?? (coords ? coords.y - coords.height : y - 18),
+            candidateList: candidateListState,
+            candidateOptions,
             preedit: preeditStr,
             candidate: candidateText,
             status: statusText || undefined
