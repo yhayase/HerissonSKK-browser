@@ -1,3 +1,4 @@
+import getCaretCoordinates from 'textarea-caret';
 import { isInputElement, isTextAreaElement, isSelectableInput } from './TextInserter';
 
 export { isInputElement, isTextAreaElement, isSelectableInput };
@@ -99,61 +100,47 @@ export function getActiveCaretCoordinates(target?: Element | null): CaretRect | 
     const computed = window.getComputedStyle(active);
 
     try {
-      const mirror = document.createElement('div');
-      mirror.style.position = 'fixed';
-      mirror.style.top = '0';
-      mirror.style.left = '0';
-      mirror.style.visibility = 'hidden';
-      mirror.style.pointerEvents = 'none';
-      mirror.style.whiteSpace = 'pre-wrap';
-      mirror.style.wordWrap = 'break-word';
-      mirror.style.overflow = 'hidden';
-
-      // Copy relevant styling properties
-      const props = [
-        'direction', 'boxSizing', 'width', 'borderTopWidth', 'borderRightWidth',
-        'borderBottomWidth', 'borderLeftWidth', 'paddingTop', 'paddingRight',
-        'paddingBottom', 'paddingLeft', 'fontStyle', 'fontVariant', 'fontWeight',
-        'fontStretch', 'fontSize', 'lineHeight', 'fontFamily', 'textAlign',
-        'textTransform', 'letterSpacing', 'wordSpacing'
-      ];
-      props.forEach(p => {
-        (mirror.style as any)[p] = (computed as any)[p];
-      });
-
-      const parsedLineHeight = parseFloat(computed.lineHeight);
-      const lineHeight = isNaN(parsedLineHeight) ? (parseFloat(computed.fontSize) * 1.2 || 18) : parsedLineHeight;
-      mirror.style.lineHeight = `${lineHeight}px`;
-
       let pos: number;
       try {
         pos = active.selectionEnd ?? (active.value?.length ?? 0);
       } catch {
         pos = active.value?.length ?? 0;
       }
-      mirror.textContent = (active.value ?? '').substring(0, pos);
-
-      const span = document.createElement('span');
-      span.textContent = (active.value ?? '').substring(pos) || '.';
-      mirror.appendChild(span);
-
-      document.body.appendChild(mirror);
-      let caretOffsetLeft = 0;
-      let caretOffsetTop = 0;
+      // normal と小数の行高を、ライブラリが返す整数・NaN ではなく従来の値で補完します。
+      const parsedLineHeight = parseFloat(computed.lineHeight);
+      const lineHeight = Number.isFinite(parsedLineHeight)
+        ? parsedLineHeight
+        : (parseFloat(computed.fontSize) * 1.2 || 18);
+      // 測定専用要素で従来の行高とスクロールバーなしの折り返し幅を維持します。
+      // 入力中の要素のスタイル・選択範囲は変更しません。
+      // 3.1.0 は例外時にミラーを残すため、この呼び出しで追加された要素だけを回収します。
+      const mirrorSelector = '[id="input-textarea-caret-position-mirror-div"]';
+      const existingMirrors = new Set(document.querySelectorAll(mirrorSelector));
+      let measurement: HTMLTextAreaElement | undefined;
+      let caret: ReturnType<typeof getCaretCoordinates>;
       try {
-        caretOffsetLeft = span.offsetLeft;
-        caretOffsetTop = span.offsetTop;
-      } finally {
-        if (mirror.parentNode) {
-          mirror.parentNode.removeChild(mirror);
+        measurement = document.createElement('textarea');
+        for (const property of computed) {
+          measurement.style.setProperty(property, computed.getPropertyValue(property));
         }
+        measurement.style.lineHeight = `${lineHeight}px`;
+        measurement.style.position = 'fixed';
+        measurement.style.visibility = 'hidden';
+        measurement.style.pointerEvents = 'none';
+        measurement.setAttribute('aria-hidden', 'true');
+        measurement.value = active.value;
+        // 従来の非表示ミラーにはスクロールバーがないため、Firefox 固有の幅補正を抑えます。
+        Object.defineProperty(measurement, 'scrollHeight', { value: 0 });
+        document.body.appendChild(measurement);
+        caret = getCaretCoordinates(measurement, pos);
+      } finally {
+        for (const mirror of document.querySelectorAll(mirrorSelector)) {
+          if (!existingMirrors.has(mirror)) mirror.remove();
+        }
+        measurement?.remove();
       }
-
-      const borderLeft = parseFloat(computed.borderLeftWidth) || 0;
-      const borderTop = parseFloat(computed.borderTopWidth) || 0;
-
-      const x = rect.left + borderLeft + caretOffsetLeft - (active.scrollLeft || 0);
-      const y = rect.top + borderTop + caretOffsetTop - (active.scrollTop || 0) + lineHeight;
+      const x = rect.left + caret.left - (active.scrollLeft || 0);
+      const y = rect.top + caret.top - (active.scrollTop || 0) + lineHeight;
 
       if (!isNaN(x) && !isNaN(y)) {
         return {

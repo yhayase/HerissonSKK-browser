@@ -6,7 +6,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const PUBLIC_DIR = path.resolve(ROOT, 'public');
+const packageInfo = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+const TEST_PAGE_DIR = path.resolve(ROOT, 'test/browser');
 const GECKODRIVER_PATH =
   process.env.GECKODRIVER_PATH ||
   (fs.existsSync('/snap/bin/geckodriver') ? '/snap/bin/geckodriver' : 'geckodriver');
@@ -145,7 +146,7 @@ process.on('SIGTERM', async () => {
 });
 
 async function main() {
-  const zipPath = path.resolve(ROOT, '.output/skk-browser-extension-0.0.0-firefox.zip');
+  const zipPath = path.resolve(ROOT, `.output/${packageInfo.name}-${packageInfo.version}-firefox.zip`);
   if (!fs.existsSync(zipPath)) {
     console.log('[Build] Building Firefox extension package...');
     execSync('npm run build:firefox && npm run build:firefox:zip', { cwd: ROOT, stdio: 'inherit' });
@@ -154,7 +155,7 @@ async function main() {
   console.log('[Test Server] Starting local test server...');
   server = http.createServer((req, res) => {
     let reqUrl = req.url === '/' ? '/test.html' : req.url;
-    let filePath = path.join(PUBLIC_DIR, reqUrl);
+    let filePath = path.join(TEST_PAGE_DIR, reqUrl);
     if (!fs.existsSync(filePath)) {
       res.writeHead(404);
       res.end('Not found');
@@ -172,7 +173,7 @@ async function main() {
     server.on('error', () => {
       server = http.createServer((req, res) => {
         let reqUrl = req.url === '/' ? '/test.html' : req.url;
-        let filePath = path.join(PUBLIC_DIR, reqUrl);
+        let filePath = path.join(TEST_PAGE_DIR, reqUrl);
         if (!fs.existsSync(filePath)) {
           res.writeHead(404);
           res.end('Not found');

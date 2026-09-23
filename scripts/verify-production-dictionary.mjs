@@ -104,9 +104,11 @@ function gitProvenance() {
   return { head: head.stdout.trim(), dirty: status.stdout.trim().length > 0 };
 }
 
-function captureInputs() {
-  const official = fs.readFileSync(path.join(ROOT, 'public/dict/SKK-JISYO.S.json'));
-  if (sha256(official) !== OFFICIAL_SHA256) throw new Error('Bundled official SKK-JISYO.S.json hash mismatch');
+async function captureInputs() {
+  const response = await fetch('https://skk-dict.github.io/jisyo/json/SKK-JISYO.S.json', { signal: AbortSignal.timeout(120000) });
+  if (!response.ok) throw new Error(`試験用公式辞書の取得に失敗しました: HTTP ${response.status}`);
+  const official = Buffer.from(await response.arrayBuffer());
+  if (sha256(official) !== OFFICIAL_SHA256) throw new Error('Downloaded official SKK-JISYO.S.json hash mismatch');
   const original = spawnSync('git', ['show', `${BASELINE_COMMIT}:src/storage/jisyo/IndexedDbJisyoStore.ts`], {
     cwd: ROOT,
     encoding: null,
@@ -322,7 +324,7 @@ async function runFirefox(options, port) {
 async function main() {
   const args = process.argv.slice(2);
   const options = parseArguments(args);
-  const inputs = captureInputs();
+  const inputs = await captureInputs();
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'skk-production-dictionary-'));
   let server;
   try {
@@ -356,7 +358,7 @@ async function main() {
             { byteLength: bytes.length, sha256: digest },
           ])),
         },
-        officialDictionary: { path: 'public/dict/SKK-JISYO.S.json', sha256: OFFICIAL_SHA256 },
+        officialDictionary: { source: 'https://skk-dict.github.io/jisyo/json/SKK-JISYO.S.json', storage: '検証プロセスのメモリーのみ', sha256: OFFICIAL_SHA256 },
         baseline: {
           commit: BASELINE_COMMIT,
           originalPath: 'src/storage/jisyo/IndexedDbJisyoStore.ts',

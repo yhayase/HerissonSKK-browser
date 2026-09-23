@@ -1,8 +1,8 @@
 {
-  "name": "skk-browser-extension",
+  "name": "herissonskk-browser",
   "description": "SKK Input Method Extension for browsers and VS Code for Web",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -38,5 +38,6 @@
   "dependencies": {
     "textarea-caret": "^3.1.0",
     "wanakana": "^5.3.1"
-  }
+  },
+  "license": "MIT"
 }

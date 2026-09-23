@@ -125,5 +125,5 @@ export function startupMessage(status?: SystemDictionaryStatus): string | undefi
     if (status?.operation.state === 'error') {
         return `初期化失敗：${status.operation.error ?? '不明なエラー'}。まだ構成は保存されていません。設定画面で初期化を再試行してください。`;
     }
-    return '初期化中です。構成はまだ保存されていません。完了まで辞書の編集はできません。';
+    return '初期化中です。基本辞書をダウンロードしています（初回はインターネット接続が必要です）。構成はまだ保存されていません。完了まで辞書の編集はできません。';
 }

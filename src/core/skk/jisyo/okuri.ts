@@ -7,7 +7,8 @@ export function lookupOkuriAlphabet(okurigana: string): string | undefined {
     if (!okurigana || okurigana.length === 0) {
         return undefined;
     }
-    const firstChar = okurigana[0];
+    // 促音は後続のかなと合わせて送り仮名の子音を求めます。
+    const firstChar = okurigana.replace(/^[っッ]+/, "")[0];
     if (firstChar === undefined) {
         return undefined;
     }

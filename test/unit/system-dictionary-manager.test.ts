@@ -44,6 +44,53 @@ describe('system dictionary configuration', () => {
         }
     });
 
+    it('初回に公式 S を取得し、保存後の起動ではネットワークを使いません', async () => {
+        const { manager, download, name } = create();
+        await Promise.all([manager.initialize(), manager.initialize()]);
+        expect(download).toHaveBeenCalledTimes(1);
+        expect(download).toHaveBeenCalledWith(expect.objectContaining({
+            source: 'https://raw.githubusercontent.com/skk-dev/dict/master/json/SKK-JISYO.S.json', enabled: true,
+        }));
+        manager.store.close();
+        const offline = create(vi.fn().mockRejectedValue(new Error('offline')), name);
+        await offline.manager.initialize();
+        expect(await words(offline.manager)).toEqual(['基本']);
+        expect(offline.download).not.toHaveBeenCalled();
+    });
+
+    it('初回取得の失敗を表示し、再試行で取得できます', async () => {
+        const { manager, download } = create();
+        download.mockRejectedValueOnce(new Error('offline'));
+        await expect(manager.initialize()).rejects.toThrow('offline');
+        expect(await manager.status()).toMatchObject({ revision: 0, operation: { state: 'error', error: 'offline' } });
+        await manager.initialize();
+        expect(await words(manager)).toEqual(['基本']);
+        expect((await manager.status()).operation.state).toBe('idle');
+        expect(download).toHaveBeenCalledTimes(2);
+    });
+
+    it('旧同梱辞書のキャッシュを保持し、設定だけを公式 URL へ移行します', async () => {
+        const { manager, name } = create();
+        await manager.initialize();
+        const previous = (await manager.store.getSystemConfiguration())!;
+        const legacy = { ...previous, revision: previous.revision + 1,
+            dictionaries: previous.dictionaries.map((d) => ({ ...d, source: 'dict/SKK-JISYO.S.json', name: '基本辞書 S（同梱）', enabled: false })),
+            cache: previous.cache.map((c) => ({ ...c, definition: { ...c.definition, source: 'dict/SKK-JISYO.S.json' } })),
+        };
+        await manager.store.publishSystemConfiguration(legacy, previous.revision);
+        manager.store.close();
+        const offline = create(vi.fn().mockRejectedValue(new Error('offline')), name);
+        await offline.manager.initialize();
+        const status = await offline.manager.status();
+        expect(status.dictionaries[0]).toMatchObject({ source: DEFAULT_SYSTEM_DICTIONARIES[0]!.source, enabled: false, state: 'ready', name: '基本辞書 S' });
+        await offline.manager.configure(status.dictionaries.map((d) => ({ ...d, enabled: true })));
+        expect(await words(offline.manager)).toEqual(['基本']);
+        expect(offline.download).not.toHaveBeenCalled();
+        const revision = (await offline.manager.status()).revision;
+        await offline.manager.initialize();
+        expect((await offline.manager.status()).revision).toBe(revision);
+    });
+
     it('基本辞書 M の公式テキスト版と JSON 版をカタログに掲載します', () => {
         expect(SYSTEM_DICTIONARY_CATALOG.filter((d) => d.kind === 'm')).toEqual([
             expect.objectContaining({ dictId: 'skk-jisyo-m', format: 'text', source: 'https://raw.githubusercontent.com/skk-dev/dict/master/SKK-JISYO.M' }),
@@ -127,7 +174,7 @@ describe('system dictionary configuration', () => {
         const { manager, download } = create();
         await manager.initialize();
         const original = (await manager.status()).dictionaries[0]!;
-        const text = SYSTEM_DICTIONARY_CATALOG.find((d) => d.source === 'dict/SKK-JISYO.S')!;
+        const text = { ...SYSTEM_DICTIONARY_CATALOG.find((d) => d.source === 'https://raw.githubusercontent.com/skk-dev/dict/master/SKK-JISYO.S')!, enabled: true };
         download.mockResolvedValueOnce({ bytes: bytes('テキスト') });
         await manager.configure([text]);
         expect(await words(manager)).toEqual(['テキスト']);
@@ -215,7 +262,7 @@ describe('system dictionary configuration', () => {
         download.mockRejectedValue(new Error('offline'));
         await manager.initialize();
         expect(await words(manager)).toEqual(['旧辞書']);
-        expect((await manager.status()).dictionaries[0]).toMatchObject({ source: 'dict/SKK-JISYO.S', format: 'text', version: '1.0.0' });
+        expect((await manager.status()).dictionaries[0]).toMatchObject({ source: 'https://raw.githubusercontent.com/skk-dev/dict/master/SKK-JISYO.S', format: 'text', version: '1.0.0' });
         expect(download).not.toHaveBeenCalled();
     });
 

@@ -6,7 +6,7 @@ import { parseDictionaryCooperatively } from '../../src/storage/jisyo/Cooperativ
 const definition = { dictId: 'test', dictPath: 'test', version: '1' };
 const encode = (text: string) => new TextEncoder().encode(text);
 describe('cooperative dictionary parsing', () => {
-    it.each(['public/dict/SKK-JISYO.S', 'public/dict/SKK-JISYO.S.json', 'test/fixtures/dictionary-primary-v1.json'])('matches the legacy parser for %s', async (path) => {
+    it.each(['test/fixtures/dictionary-secondary.txt', 'test/fixtures/dictionary-primary-v1.json'])('matches the legacy parser for %s', async (path) => {
         const bytes = readFileSync(path);
         expect(await parseDictionaryCooperatively(bytes, { ...definition, dictPath: path })).toEqual(parseDictionary(bytes, { ...definition, dictPath: path }));
     });

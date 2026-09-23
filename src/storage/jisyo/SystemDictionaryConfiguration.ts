@@ -47,8 +47,6 @@ export interface SystemDictionaryStatus {
 
 const remoteRoot = 'https://raw.githubusercontent.com/skk-dev/dict/master/';
 export const SYSTEM_DICTIONARY_CATALOG: readonly SystemDictionaryDefinition[] = [
-    { dictId: 'skk-jisyo-s', name: '基本辞書 S（同梱）', kind: 's', format: 'json', source: 'dict/SKK-JISYO.S.json', enabled: true },
-    { dictId: 'skk-jisyo-s', name: '基本辞書 S（同梱）', kind: 's', format: 'text', source: 'dict/SKK-JISYO.S', enabled: true },
     ...(['s', 'm', 'l', 'person', 'place', 'postal'] as const).flatMap((kind) => {
         const file = { s: 'SKK-JISYO.S', m: 'SKK-JISYO.M', l: 'SKK-JISYO.L', person: 'SKK-JISYO.jinmei', place: 'SKK-JISYO.geo', postal: 'zipcode/SKK-JISYO.zipcode' }[kind];
         const name = { s: '基本辞書 S', m: '基本辞書 M', l: '基本辞書 L', person: '人名辞書', place: '地名辞書', postal: '郵便番号辞書' }[kind];
@@ -58,7 +56,15 @@ export const SYSTEM_DICTIONARY_CATALOG: readonly SystemDictionaryDefinition[] = 
         }));
     }),
 ];
-export const DEFAULT_SYSTEM_DICTIONARIES = [SYSTEM_DICTIONARY_CATALOG[0]!];
+export const DEFAULT_SYSTEM_DICTIONARIES = [{ ...SYSTEM_DICTIONARY_CATALOG.find((d) => d.kind === 's' && d.format === 'json')!, enabled: true }];
+
+/** 旧同梱辞書の設定だけを、同じ形式の公式配信先へ移行します。 */
+export function migrateBundledDictionary(d: SystemDictionaryDefinition): SystemDictionaryDefinition {
+    if (d.dictId !== 'skk-jisyo-s' || d.kind !== 's'
+        || d.source !== `dict/SKK-JISYO.S${d.format === 'json' ? '.json' : ''}`) return d;
+    const remote = SYSTEM_DICTIONARY_CATALOG.find((item) => item.kind === 's' && item.format === d.format)!;
+    return { ...d, source: remote.source, name: d.name.replace('（同梱）', '') };
+}
 
 export function sameDictionarySource(a: SystemDictionaryDefinition, b: SystemDictionaryDefinition): boolean {
     return a.dictId === b.dictId && a.source === b.source && a.format === b.format && a.kind === b.kind;

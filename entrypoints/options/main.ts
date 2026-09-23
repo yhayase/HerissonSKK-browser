@@ -51,7 +51,7 @@ function sourceChoices(): void {
     element<HTMLButtonElement>('add').disabled = !source.options.length;
 }
 function sourceLabel(source: string): string {
-    if (source.startsWith('dict/')) return '同梱';
+    if (source.startsWith('dict/')) return '旧同梱辞書（移行待ち）';
     try { const url = new URL(source); return `${url.hostname}/${url.pathname.split('/').pop()}`; }
     catch { return source; }
 }

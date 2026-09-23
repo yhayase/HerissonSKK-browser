@@ -29,3 +29,8 @@ web-ext.config.ts
 chrome/
 poc-screenshot.png
 .browser-profile/
+
+# Local backups, design drafts, and browser state
+.local/
+.firefox-profile/
+/firefox-verify-screenshot.png

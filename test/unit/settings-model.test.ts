@@ -58,7 +58,7 @@ describe('設定画面の編集状態', () => {
 describe('形式とファイルの選択', () => {
     it('形式と種類の両方で公開カタログを絞り込みます', () => {
         const catalog = [...SYSTEM_DICTIONARY_CATALOG];
-        expect(variants(catalog, 's', 'json')).toHaveLength(2);
+        expect(variants(catalog, 's', 'json')).toHaveLength(1);
         expect(variants(catalog, 'person', 'text').every((d) => d.kind === 'person' && d.format === 'text')).toBe(true);
         expect(variants(catalog, 'postal', 'json')).toEqual([]);
     });

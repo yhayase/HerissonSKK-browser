@@ -4,13 +4,13 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import zlib from 'node:zlib';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer-core';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PUBLIC_DIR = path.join(ROOT, 'public');
+const packageInfo = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+const TEST_PAGE_DIR = path.join(ROOT, 'test/browser');
 const CHROME_PATH = process.env.CHROME_PATH || path.join(ROOT, 'chrome/linux-152.0.7977.82/chrome-linux64/chrome');
 const FIREFOX_PATH = process.env.FIREFOX_PATH ||
   (fs.existsSync('/snap/firefox/current/usr/lib/firefox/firefox')
@@ -18,10 +18,9 @@ const FIREFOX_PATH = process.env.FIREFOX_PATH ||
     : 'firefox');
 const GECKODRIVER_PATH = process.env.GECKODRIVER_PATH ||
   (fs.existsSync('/snap/bin/geckodriver') ? '/snap/bin/geckodriver' : 'geckodriver');
-const OFFICIAL_SHA256 = '729e562f963ec06186c251c116510d6ed89aa525be78d6e2795920786741f0bc';
+const DICTIONARY_SOURCE = 'https://raw.githubusercontent.com/skk-dev/dict/master/json/SKK-JISYO.S.json';
 const CHROME_OUTPUT = '.output/chrome-mv3';
-const FIREFOX_ZIP = '.output/skk-browser-extension-0.0.0-firefox.zip';
-const OFFICIAL_MEMBER = 'dict/SKK-JISYO.S.json';
+const FIREFOX_ZIP = `.output/${packageInfo.name}-${packageInfo.version}-firefox.zip`;
 
 function sha256(bytes) {
   return crypto.createHash('sha256').update(bytes).digest('hex');
@@ -51,95 +50,6 @@ function sortedFileManifest(directory) {
   return { files, rootSha256: sha256(Buffer.from(rootInput, 'utf8')) };
 }
 
-function findEndOfCentralDirectory(archive) {
-  if (archive.length < 22) throw new Error('Firefox ZIP is shorter than an end-of-central-directory record');
-  const minimumOffset = Math.max(0, archive.length - 65_557);
-  for (let offset = archive.length - 22; offset >= minimumOffset; offset -= 1) {
-    if (archive.readUInt32LE(offset) === 0x06054b50) return offset;
-  }
-  throw new Error('Firefox ZIP has no end-of-central-directory record');
-}
-
-function crc32(bytes) {
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function readZipMember(archive, memberPath) {
-  const eocd = findEndOfCentralDirectory(archive);
-  const diskNumber = archive.readUInt16LE(eocd + 4);
-  const centralDirectoryDisk = archive.readUInt16LE(eocd + 6);
-  const entryCount = archive.readUInt16LE(eocd + 10);
-  const centralDirectorySize = archive.readUInt32LE(eocd + 12);
-  const centralDirectoryOffset = archive.readUInt32LE(eocd + 16);
-  const commentLength = archive.readUInt16LE(eocd + 20);
-  if (diskNumber !== 0 || centralDirectoryDisk !== 0 || archive.readUInt16LE(eocd + 8) !== entryCount) {
-    throw new Error('Multi-disk Firefox ZIP archives are not supported');
-  }
-  if (entryCount === 0xffff || centralDirectorySize === 0xffffffff || centralDirectoryOffset === 0xffffffff) {
-    throw new Error('ZIP64 Firefox archives are not supported');
-  }
-  if (eocd + 22 + commentLength !== archive.length || centralDirectoryOffset + centralDirectorySize !== eocd) {
-    throw new Error('Firefox ZIP central directory bounds are invalid');
-  }
-  let offset = centralDirectoryOffset;
-  const matches = [];
-  for (let index = 0; index < entryCount; index += 1) {
-    if (offset + 46 > eocd || archive.readUInt32LE(offset) !== 0x02014b50) {
-      throw new Error('Firefox ZIP central directory is invalid');
-    }
-    const flags = archive.readUInt16LE(offset + 8);
-    const method = archive.readUInt16LE(offset + 10);
-    const expectedCrc32 = archive.readUInt32LE(offset + 16);
-    const compressedSize = archive.readUInt32LE(offset + 20);
-    const uncompressedSize = archive.readUInt32LE(offset + 24);
-    const nameLength = archive.readUInt16LE(offset + 28);
-    const extraLength = archive.readUInt16LE(offset + 30);
-    const fileCommentLength = archive.readUInt16LE(offset + 32);
-    const localHeaderOffset = archive.readUInt32LE(offset + 42);
-    const nextOffset = offset + 46 + nameLength + extraLength + fileCommentLength;
-    if (nextOffset > eocd) throw new Error('Firefox ZIP central directory entry exceeds its bounds');
-    const name = archive.subarray(offset + 46, offset + 46 + nameLength).toString('utf8');
-    if (name === memberPath) matches.push({ flags, method, expectedCrc32, compressedSize, uncompressedSize, localHeaderOffset });
-    offset = nextOffset;
-  }
-  if (offset !== eocd || matches.length !== 1) {
-    throw new Error(`Firefox ZIP must contain exactly one ${memberPath} member`);
-  }
-  const entry = matches[0];
-  if ((entry.flags & 0x1) !== 0) throw new Error(`${memberPath} must not be encrypted`);
-  if (entry.localHeaderOffset + 30 > centralDirectoryOffset || archive.readUInt32LE(entry.localHeaderOffset) !== 0x04034b50) {
-    throw new Error(`Firefox ZIP local header is invalid for ${memberPath}`);
-  }
-  const localFlags = archive.readUInt16LE(entry.localHeaderOffset + 6);
-  const localMethod = archive.readUInt16LE(entry.localHeaderOffset + 8);
-  const localNameLength = archive.readUInt16LE(entry.localHeaderOffset + 26);
-  const localExtraLength = archive.readUInt16LE(entry.localHeaderOffset + 28);
-  const dataOffset = entry.localHeaderOffset + 30 + localNameLength + localExtraLength;
-  if (dataOffset > centralDirectoryOffset) throw new Error(`Firefox ZIP local header exceeds its bounds: ${memberPath}`);
-  const localName = archive.subarray(
-    entry.localHeaderOffset + 30,
-    entry.localHeaderOffset + 30 + localNameLength,
-  ).toString('utf8');
-  if (localName !== memberPath || localFlags !== entry.flags || localMethod !== entry.method) {
-    throw new Error(`Firefox ZIP headers disagree for ${memberPath}`);
-  }
-  const dataEnd = dataOffset + entry.compressedSize;
-  if (dataEnd > centralDirectoryOffset) throw new Error(`Firefox ZIP member exceeds its bounds: ${memberPath}`);
-  const compressed = archive.subarray(dataOffset, dataEnd);
-  const bytes = entry.method === 0 ? Buffer.from(compressed)
-    : entry.method === 8 ? zlib.inflateRawSync(compressed)
-      : undefined;
-  if (!bytes) throw new Error(`Firefox ZIP member uses unsupported compression method ${entry.method}: ${memberPath}`);
-  if (bytes.length !== entry.uncompressedSize) throw new Error(`Firefox ZIP member size mismatch: ${memberPath}`);
-  if (crc32(bytes) !== entry.expectedCrc32) throw new Error(`Firefox ZIP member CRC-32 mismatch: ${memberPath}`);
-  return bytes;
-}
-
 function prepareBuildArtifacts(options, temporaryRoot, accessibleArtifactRoot) {
   const artifacts = {};
   if (options.browser === 'chrome' || options.browser === 'both') {
@@ -150,10 +60,7 @@ function prepareBuildArtifacts(options, temporaryRoot, accessibleArtifactRoot) {
     const snapshot = path.join(temporaryRoot, 'chrome-mv3');
     fs.cpSync(source, snapshot, { recursive: true, errorOnExist: true });
     const manifest = sortedFileManifest(snapshot);
-    const official = manifest.files.find((file) => file.path === OFFICIAL_MEMBER);
-    if (!official || official.sha256 !== OFFICIAL_SHA256) {
-      throw new Error(`Chrome build output is missing the pinned official JSON: ${CHROME_OUTPUT}/${OFFICIAL_MEMBER}`);
-    }
+    if (manifest.files.some((file) => file.path.startsWith('dict/'))) throw new Error('配布物に辞書が同梱されています。');
     artifacts.chrome = {
       executionPath: snapshot,
       report: {
@@ -171,11 +78,6 @@ function prepareBuildArtifacts(options, temporaryRoot, accessibleArtifactRoot) {
       throw new Error(`Firefox ZIP is missing: ${FIREFOX_ZIP}`);
     }
     const archive = fs.readFileSync(source);
-    const official = readZipMember(archive, OFFICIAL_MEMBER);
-    const officialSha256 = sha256(official);
-    if (officialSha256 !== OFFICIAL_SHA256) {
-      throw new Error(`Firefox ZIP contains an unexpected ${OFFICIAL_MEMBER}`);
-    }
     const snapshot = path.join(accessibleArtifactRoot, 'firefox.zip');
     fs.writeFileSync(snapshot, archive);
     artifacts.firefox = {
@@ -185,12 +87,6 @@ function prepareBuildArtifacts(options, temporaryRoot, accessibleArtifactRoot) {
         byteLength: archive.length,
         sha256: sha256(archive),
         snapshot: 'ZIP全体を読み込んでハッシュし、その同じバイト列を一時ファイルへ保存してインストールしました。',
-        officialDictionaryMember: {
-          path: OFFICIAL_MEMBER,
-          byteLength: official.length,
-          sha256: officialSha256,
-          validation: 'インストール対象ZIPの中央ディレクトリとローカルヘッダーを検証し、展開したメンバーをハッシュしました。',
-        },
       },
     };
   }
@@ -237,8 +133,8 @@ function commandVersion(command) {
 async function startServer() {
   const server = http.createServer((request, response) => {
     const pathname = new URL(request.url || '/', 'http://127.0.0.1').pathname;
-    const filename = path.join(PUBLIC_DIR, pathname === '/' ? 'test.html' : pathname.slice(1));
-    if (!filename.startsWith(`${PUBLIC_DIR}${path.sep}`) || !fs.existsSync(filename) || !fs.statSync(filename).isFile()) {
+    const filename = path.join(TEST_PAGE_DIR, pathname === '/' ? 'test.html' : pathname.slice(1));
+    if (!filename.startsWith(`${TEST_PAGE_DIR}${path.sep}`) || !fs.existsSync(filename) || !fs.statSync(filename).isFile()) {
       response.writeHead(404);
       response.end('Not found');
       return;
@@ -446,14 +342,14 @@ async function main() {
       results.firefox = await runFirefox(options.samples, port, artifacts.firefox.executionPath);
     }
     const report = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       generatedAt: new Date().toISOString(),
       provenance: {
         gitHead: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim(),
         gitDirty: spawnSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim().length > 0,
         harnessSha256: sha256File(fileURLToPath(import.meta.url)),
         backgroundSha256: sha256File(path.join(ROOT, 'entrypoints/background.ts')),
-        officialDictionarySha256: OFFICIAL_SHA256,
+        dictionary: { source: DICTIONARY_SOURCE, pinned: false, note: '初回に公式配信先から取得する辞書で測定します。辞書の内容は固定していません。' },
         executedArtifacts: Object.fromEntries(Object.entries(artifacts).map(([browser, artifact]) => [browser, artifact.report])),
         node: process.version,
         osRelease: os.release(),

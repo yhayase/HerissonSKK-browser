@@ -99,7 +99,7 @@ const openDiagnostics = async () => {
   log(`[${flavor}] diagnostics navigation completed`);
   await diagnostics.waitForFunction(() => /リビジョン [1-9]/.test(document.querySelector('#notice').textContent) && !document.querySelector('#diagnostic-controls').disabled);
   log(`[${flavor}] diagnostics persisted configuration ready`);
-  assert.equal(await diagnostics.title(), 'SKK 候補診断');
+  assert.equal(await diagnostics.title(), 'HerissonSKK 候補診断');
   assert.match(await diagnostics.$eval('main > p', (paragraph) => paragraph.textContent), /保存済み.*読み取り専用/);
   assert.equal(await diagnostics.$('[data-update], #save, #import, #add'), null, 'diagnostics must not expose mutation controls');
   await front(options);
@@ -220,7 +220,7 @@ const verifyFirefoxPopup = async (popup) => {
       if (response.result.type === 'success' && response.result.result.type === 'string') {
         const dom = JSON.parse(response.result.result.value);
         if (dom.readyState === 'complete' && dom.disabled === false && dom.rows.includes('skk-jisyo-s')) {
-          assert.equal(dom.url, before.url); assert.equal(dom.title, 'SKK 辞書設定');
+          assert.equal(dom.url, before.url); assert.equal(dom.title, 'HerissonSKK 辞書設定');
           assert.ok(Number(dom.revision) > 0);
           const proof = { tabId: matching[0].id, context: contexts[0].context, dom };
           fs.writeFileSync(path.join(output, 'popup-proof.json'), JSON.stringify(proof, null, 2));
@@ -268,13 +268,13 @@ try {
   await startup.evaluate(() => { globalThis.__startupReleased = true; }); await click(startup, '#refresh');
   await startup.waitForFunction(() => !document.querySelector('#draft-controls').disabled && document.querySelector('#draft-list [data-dict-id="skk-jisyo-s"]'));
   await startup.close();
-  log(`[${flavor}] catalog selectors and bundled format switch`);
+  log(`[${flavor}] catalog selectors and remote format switch`);
   for (const kind of ['s', 'm', 'l', 'person', 'place', 'postal']) for (const format of ['text', 'json']) {
     await options.select('#kind', kind); await options.select('#format', format);
     assert.equal(await options.$eval('#add', (el) => el.disabled), kind === 'postal' && format === 'json');
   }
-  for (const source of ['dict/SKK-JISYO.S', 'dict/SKK-JISYO.S.json']) {
-    log(`[${flavor}] switch bundled S to ${source}`);
+  for (const source of ['https://raw.githubusercontent.com/skk-dev/dict/master/SKK-JISYO.S', 'https://raw.githubusercontent.com/skk-dev/dict/master/json/SKK-JISYO.S.json']) {
+    log(`[${flavor}] switch remote S to ${source}`);
     await options.select('#draft-list [data-dict-id="skk-jisyo-s"] select', source); await save();
     assert.equal((await status()).dictionaries[0].source, source);
   }
@@ -561,7 +561,7 @@ try {
     assert.ok(options, `popup did not open options: ${await popup.evaluate(() => document.body.innerText).catch(() => 'popup closed')}`);
   }
   await options.waitForSelector('#draft-list [data-dict-id]');
-  assert.equal(await options.title(), 'SKK 辞書設定');
+  assert.equal(await options.title(), 'HerissonSKK 辞書設定');
   if (flavor === 'chrome') {
     await options.screenshot({ path: path.join(output, 'options.png'), fullPage: true });
     await diagnostics.screenshot({ path: path.join(output, 'diagnostics.png'), fullPage: true });

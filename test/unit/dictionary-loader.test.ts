@@ -83,16 +83,17 @@ afterEach(async () => {
 });
 
 describe("DictionaryLoader v4", () => {
-    it("既存の単一辞書 API で同梱テキスト辞書を初期化して再読込を省略する", async () => {
+    it("既存の単一辞書 API で試験用辞書を初期化して再読込を省略する", async () => {
         const store = new IndexedDbJisyoStore({ dbName: databaseName("default") });
         stores.push(store);
 
+        mockSources({ "dict/SKK-JISYO.S": "ためす /試験候補/\n" });
         const first = await DictionaryLoader.ensureInitialized(store);
         const second = await DictionaryLoader.ensureInitialized(store);
 
-        expect(first).toBeGreaterThan(200);
+        expect(first).toBe(1);
         expect(second).toBe(0);
-        expect((await store.lookup("わらu"))?.getCandidateList().map((candidate) => candidate.word)).toContain("笑");
+        expect((await store.lookup("ためす"))?.getCandidateList().map((candidate) => candidate.word)).toEqual(["試験候補"]);
     });
 
     it("既存の単一辞書 API でカスタム辞書 ID を初期化して検索対象にする", async () => {

@@ -3,7 +3,7 @@ import { DictionaryLoader } from './DictionaryLoader';
 import { IndexedDbJisyoStore, type IndexedDbJisyoStoreOptions } from './IndexedDbJisyoStore';
 import {
     DEFAULT_SYSTEM_DICTIONARIES, SYSTEM_CONFIGURATION_ID, SYSTEM_OPERATION_ID, SYSTEM_DICTIONARY_CATALOG,
-    sameDictionarySource, validateSystemDictionaries,
+    sameDictionarySource, validateSystemDictionaries, migrateBundledDictionary,
     type CachedSystemDictionary, type SystemDictionaryConfiguration, type SystemDictionaryDefinition, type SystemDictionaryStatus,
 } from './SystemDictionaryConfiguration';
 
@@ -57,7 +57,25 @@ export class SystemDictionaryManager {
 
     /** キャッシュがある起動ではネットワークを待ちません。 */
     public async initialize(): Promise<void> {
-        if (await this.store.getSystemConfiguration()) {
+        const existing = await this.store.getSystemConfiguration();
+        if (existing) {
+            if ([...existing.dictionaries, ...existing.cache.map((c) => c.definition)].some((d) => migrateBundledDictionary(d) !== d)) {
+                await this.store.runImportExclusive(configurationLock, async () => {
+                    const previous = (await this.store.getSystemConfiguration())!;
+                    if (![...previous.dictionaries, ...previous.cache.map((c) => c.definition)].some((d) => migrateBundledDictionary(d) !== d)) return;
+                    await this.recoverOperation();
+                    const cache: CachedSystemDictionary[] = [];
+                    // 使用中の旧キャッシュを優先し、同じ移行先を持つキャッシュの重複を避けます。
+                    const ordered = [...previous.cache].sort((a, b) => Number(previous.dictionaries.some((d) => sameDictionarySource(d, b.definition))) - Number(previous.dictionaries.some((d) => sameDictionarySource(d, a.definition))));
+                    for (const item of ordered) {
+                        const definition = migrateBundledDictionary(item.definition);
+                        if (!cache.some((c) => sameDictionarySource(c.definition, definition))) cache.push({ ...item, definition });
+                    }
+                    const updated = { ...previous, revision: previous.revision + 1,
+                        dictionaries: previous.dictionaries.map(migrateBundledDictionary), cache };
+                    if (!await this.store.publishSystemConfiguration(updated, previous.revision)) throw new Error('辞書設定の移行に失敗しました。再試行してください。');
+                });
+            }
             if (!this.recoveryScheduled) {
                 this.recoveryScheduled = true;
                 void this.recover().catch(() => undefined);
@@ -69,7 +87,7 @@ export class SystemDictionaryManager {
                 if (await this.store.getSystemConfiguration()) return;
                 const active = await this.store.getActiveDictionary(DEFAULT_SYSTEM_DICTIONARIES[0]!.dictId);
                 if (active) {
-                    const bundled = SYSTEM_DICTIONARY_CATALOG.find((d) => d.source === (active.version.startsWith('official-s-') ? 'dict/SKK-JISYO.S.json' : 'dict/SKK-JISYO.S'))!;
+                    const bundled = { ...SYSTEM_DICTIONARY_CATALOG.find((d) => d.kind === 's' && d.format === (active.version.startsWith('official-s-') ? 'json' : 'text'))!, enabled: true };
                     const config: SystemDictionaryConfiguration = {
                         dictId: SYSTEM_CONFIGURATION_ID, revision: 1,
                         dictionaries: [{ ...bundled }],

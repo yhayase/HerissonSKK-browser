@@ -1,3 +1,4 @@
+import getCaretCoordinates from 'textarea-caret';
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { SimpleMemoryJisyoProvider } from "../../src/core/skk/jisyo/SimpleMemoryJisyoProvider";
 import { BrowserEditorAdapter } from "../../src/adapter/BrowserEditorAdapter";
@@ -13,6 +14,8 @@ import { FloatingHUD } from "../../src/hud/FloatingHUD";
 import { getActiveCaretCoordinates } from "../../src/adapter/CaretPosition";
 import { insertText, isInputElement, isTextAreaElement, isSelectableInput } from "../../src/adapter/TextInserter";
 import { RegistrationMode } from "../../src/core/skk/input-mode/henkan/RegistrationMode";
+
+vi.mock('textarea-caret', () => ({ default: vi.fn() }));
 
 // --- Mock DOM Environment Setup for Unit Testing ---
 
@@ -307,6 +310,7 @@ describe("BrowserEditorAdapter", () => {
             }),
             getElementById: () => null,
             querySelector: () => null,
+            querySelectorAll: () => [],
             execCommand: () => false, // triggers fallback in TextInserter
             addEventListener: () => {},
             removeEventListener: () => {}
@@ -891,43 +895,37 @@ describe("BrowserEditorAdapter", () => {
             expect(isTextAreaElement(otherElement)).toBe(false);
         });
 
-        it("cleans up caret measurement mirror in finally block for HTMLTextAreaElement", () => {
-            let appendChildCalled = false;
-            let removeChildCalled = false;
-            let appendedChildNode: any = null;
-
-            const originalCreateElement = (document as any).createElement;
-            const originalBody = (document as any).body;
-
-            const mockBody = {
-                appendChild: (node: any) => {
-                    appendChildCalled = true;
-                    appendedChildNode = node;
-                    node.parentNode = mockBody;
-                },
-                removeChild: (node: any) => {
-                    removeChildCalled = true;
-                    node.parentNode = null;
-                }
-            };
-            (document as any).body = mockBody;
-
+        it("textarea の測定失敗時には測定用要素を削除して入力欄の下端へ戻ります", () => {
+            const remove = vi.fn();
+            const measurement = { style: { setProperty: vi.fn() }, setAttribute: vi.fn(), remove };
+            const computed = Object.assign([], { lineHeight: "normal", fontSize: "16px" });
+            (window as any).getComputedStyle = () => computed;
+            (document as any).createElement = () => measurement;
+            (document as any).body = { appendChild: vi.fn() };
+            vi.mocked(getCaretCoordinates).mockImplementationOnce(() => { throw new Error("測定失敗"); });
             const textarea = {
-                tagName: "TEXTAREA",
-                value: "hello world\nline 2",
-                selectionEnd: 5,
-                scrollTop: 0,
-                scrollLeft: 0,
-                getBoundingClientRect: () => ({ left: 10, top: 20, right: 200, bottom: 100 })
+                tagName: "TEXTAREA", value: "test", selectionEnd: 2,
+                getBoundingClientRect: () => ({ left: 10, top: 20, bottom: 100 }),
             };
+            expect(getActiveCaretCoordinates(textarea as unknown as Element)).toEqual({ x: 10, y: 100, height: 20 });
+            expect(remove).toHaveBeenCalledOnce();
+        });
 
-            const coords = getActiveCaretCoordinates(textarea as unknown as Element);
-            expect(appendChildCalled).toBe(true);
-            expect(removeChildCalled).toBe(true);
-            expect(coords).toBeDefined();
-
-            (document as any).body = originalBody;
-            (document as any).createElement = originalCreateElement;
+        it.each([['normal', 19.2], ['20.5px', 20.5]])("textarea の %s 行高とスクロール補正を維持します", (lineHeight, height) => {
+            const remove = vi.fn();
+            const measurement = { style: { setProperty: vi.fn() }, setAttribute: vi.fn(), remove };
+            (window as any).getComputedStyle = () => Object.assign([], { lineHeight, fontSize: "16px" });
+            (document as any).createElement = () => measurement;
+            (document as any).body = { appendChild: vi.fn() };
+            vi.mocked(getCaretCoordinates).mockReturnValueOnce({ left: 12, top: 30, height: NaN });
+            const textarea = {
+                tagName: "TEXTAREA", value: "test", selectionEnd: 2, scrollLeft: 3, scrollTop: 7,
+                getBoundingClientRect: () => ({ left: 10, top: 20, bottom: 100 }),
+            };
+            expect(getActiveCaretCoordinates(textarea as unknown as Element)).toEqual({ x: 19, y: 43 + height, height });
+            expect(getCaretCoordinates).toHaveBeenLastCalledWith(measurement, 2);
+            expect(measurement.style).toHaveProperty('lineHeight', `${height}px`);
+            expect(remove).toHaveBeenCalledOnce();
         });
 
         it("calculates caret coordinates on <input type='number'> without throwing InvalidStateError", () => {

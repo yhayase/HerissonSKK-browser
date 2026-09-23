@@ -7,13 +7,13 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const EXT_PATH = path.resolve(ROOT, '.output/chrome-mv3');
-const PUBLIC_DIR = path.resolve(ROOT, 'public');
+const TEST_PAGE_DIR = path.resolve(ROOT, 'test/browser');
 const CHROME_PATH = path.resolve(ROOT, 'chrome/linux-152.0.7977.82/chrome-linux64/chrome');
 
 // 1. Start local HTTP server on 127.0.0.1
 const server = http.createServer((req, res) => {
   let reqUrl = req.url === '/' ? '/test.html' : req.url;
-  let filePath = path.join(PUBLIC_DIR, reqUrl);
+  let filePath = path.join(TEST_PAGE_DIR, reqUrl);
   if (!fs.existsSync(filePath)) {
     res.writeHead(404);
     res.end('Not found');
@@ -366,7 +366,7 @@ async function runVerification(port) {
   console.log(`[Learning] Final value after 2nd conversion: "${finalLearnedValue}"`);
 
   // Save verification screenshot
-  const screenshotPath = path.resolve(ROOT, 'poc-screenshot.png');
+  const screenshotPath = path.resolve(ROOT, '.output/poc-screenshot.png');
   await page.screenshot({ path: screenshotPath });
   console.log(`\n[Screenshot] Saved headless verification screenshot to: ${screenshotPath}`);
 

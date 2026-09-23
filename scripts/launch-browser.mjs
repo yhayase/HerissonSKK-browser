@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const EXT_PATH = path.resolve(ROOT, '.output/chrome-mv3');
-const PUBLIC_DIR = path.resolve(ROOT, 'public');
+const TEST_PAGE_DIR = path.resolve(ROOT, 'test/browser');
 const CHROME_PATH = process.env.CHROME_BIN || path.resolve(ROOT, 'chrome/linux-152.0.7977.82/chrome-linux64/chrome');
 import { execSync } from 'child_process';
 
@@ -41,7 +41,7 @@ fs.mkdirSync(PROFILE_DIR, { recursive: true });
 // Start local HTTP server for test page
 const server = http.createServer((req, res) => {
   let reqUrl = req.url === '/' ? '/test.html' : req.url;
-  let filePath = path.join(PUBLIC_DIR, reqUrl);
+  let filePath = path.join(TEST_PAGE_DIR, reqUrl);
   if (!fs.existsSync(filePath)) {
     res.writeHead(404);
     res.end('Not found');

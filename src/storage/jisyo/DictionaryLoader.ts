@@ -169,19 +169,7 @@ export class DictionaryLoader {
                 const response = await fetch(url);
                 if (response.ok) return new Uint8Array(await response.arrayBuffer());
             } catch {
-                // Node.js の単体テストではファイル読み込みへフォールバックします。
-            }
-        }
-
-        if (typeof process !== "undefined" && process.versions?.node) {
-            try {
-                const fs = await import(/* @vite-ignore */ "fs/promises");
-                const path = await import(/* @vite-ignore */ "path");
-                const filePath = path.resolve(process.cwd(), "public", dictPath);
-                const fileBuffer = await fs.readFile(filePath);
-                return new Uint8Array(fileBuffer.buffer, fileBuffer.byteOffset, fileBuffer.byteLength);
-            } catch (error) {
-                console.warn("[SKK] DictionaryLoader filesystem fallback failed:", error);
+                // 取得失敗は下の共通エラーとして通知します。
             }
         }
 

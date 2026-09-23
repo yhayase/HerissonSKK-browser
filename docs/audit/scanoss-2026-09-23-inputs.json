@@ -1,0 +1,552 @@
+[
+  {
+    "path": "entrypoints/background.ts",
+    "sha256": "dc1687c3466ed58ded37b8dcb9cb2a3c08bd1741805cef9ffd69a623f277c1ca",
+    "bytes": 6331
+  },
+  {
+    "path": "entrypoints/content.ts",
+    "sha256": "acbd86dd28e187dd3f0f7c5b1a0721cb2268ddb8a29453f67e0fd74034049493",
+    "bytes": 11850
+  },
+  {
+    "path": "entrypoints/diagnostics/index.html",
+    "sha256": "4cc55c2306e640296201efe9bb4b470282f5ace8a7d155ce066b45e5a6b7b9ff",
+    "bytes": 1835
+  },
+  {
+    "path": "entrypoints/diagnostics/main.ts",
+    "sha256": "eb40c6794c56d8e454a5cb9196becae3182c676131a37d4449cbd7bedd3e0d74",
+    "bytes": 4000
+  },
+  {
+    "path": "entrypoints/monaco-compat.content.ts",
+    "sha256": "234c33cd790db54ca4bea4dee1cd24d340ac5798b54517b3f6c6cead50719489",
+    "bytes": 493
+  },
+  {
+    "path": "entrypoints/options/index.html",
+    "sha256": "70c2d20051b46b50795748e8b238497bb4390dd256b8cf7fc70e372c1773e98b",
+    "bytes": 4326
+  },
+  {
+    "path": "entrypoints/options/main.ts",
+    "sha256": "13692a9bebeba4c3fbfc6a41477ddae4c965498ce377e37cdf3f3fd6408e052e",
+    "bytes": 20477
+  },
+  {
+    "path": "entrypoints/options/style.css",
+    "sha256": "bc056ef059ddd5b794248761fc4ad426f9f78af178650820ea2d8caee14c5734",
+    "bytes": 5263
+  },
+  {
+    "path": "entrypoints/popup/index.html",
+    "sha256": "e578e8215d19acaf0e2dfc24a3f99aabe0c2d411b9bfbc716e2ec2af9f7e5388",
+    "bytes": 486
+  },
+  {
+    "path": "entrypoints/popup/main.ts",
+    "sha256": "c014ac14224c3f8bc7c51342fd49f038ba3a421dcbd2de391c82561a02f89406",
+    "bytes": 1453
+  },
+  {
+    "path": "entrypoints/popup/style.css",
+    "sha256": "19ff46cedfd997bb28c9e9dddf55c7271564105d6157d6d566219209a99ed5ab",
+    "bytes": 453
+  },
+  {
+    "path": "public/test.html",
+    "sha256": "51181cb8798d7010369ea23d9473f58dfa1ae3a5fae17f1da643755509724660",
+    "bytes": 4544
+  },
+  {
+    "path": "scripts/benchmark-dictionary.mjs",
+    "sha256": "4b31e6d4c43ccf1871cafe5b921fdf03898768d7a964060395cadd70a48122f3",
+    "bytes": 17888
+  },
+  {
+    "path": "scripts/dictionary-benchmark/browser.ts",
+    "sha256": "1ac018ab2dc6807222e4e2ded308a97f082059d22413900fd7020de3782d6693",
+    "bytes": 24443
+  },
+  {
+    "path": "scripts/launch-browser.mjs",
+    "sha256": "a583d7533d1a8de91864b31920c493fca80e85576be3f3763bb5fa585aaf14e8",
+    "bytes": 2655
+  },
+  {
+    "path": "scripts/launch-firefox.mjs",
+    "sha256": "ee1f720539a04df5bdd7f87396c5bdeb26407876c4b5c8399e999e5277d8e1d0",
+    "bytes": 8244
+  },
+  {
+    "path": "scripts/verify-production-dictionary.mjs",
+    "sha256": "ae9d920a57d82bed78c52afc58b9b1b572fed59bbeeb52f4edb40a88a61fb69c",
+    "bytes": 16493
+  },
+  {
+    "path": "src/adapter/BrowserEditorAdapter.ts",
+    "sha256": "d0d3a73975a30c4901217f0d2de95a8b80560f4fa442907b7508f362e9b71dc0",
+    "bytes": 32104
+  },
+  {
+    "path": "src/adapter/CaretPosition.ts",
+    "sha256": "85a0073fef192b4d9beeaa5d5999eecc3ccee218630ea6d2d4e105b8fb163dec",
+    "bytes": 6497
+  },
+  {
+    "path": "src/adapter/DOMUtils.ts",
+    "sha256": "d854e0dbf83aa30443408a871259a8bf9ecbcc10b87c3122957ad2b04fec76b3",
+    "bytes": 1905
+  },
+  {
+    "path": "src/adapter/TextInserter.ts",
+    "sha256": "0ca34cbc2ca005eefe7eb794def3ae8002a105c54b7a0c2466304726d0524c31",
+    "bytes": 3331
+  },
+  {
+    "path": "src/adapter/targets/ContentEditableTarget.ts",
+    "sha256": "d9b3d70d652eff9bcb6e7f528c87a35990a77a872097d5c50841ee1933da92fb",
+    "bytes": 8419
+  },
+  {
+    "path": "src/adapter/targets/EditorTargetFactory.ts",
+    "sha256": "04813f1d415a781d1a3b304ae1a5aad3c2f4406397e019e72f72bed6bed6eecc",
+    "bytes": 756
+  },
+  {
+    "path": "src/adapter/targets/IEditorTarget.ts",
+    "sha256": "1e695779863dfc758aef5ae0979ae6e55c1fcd8e3c023746be18744f7bb9f08c",
+    "bytes": 1155
+  },
+  {
+    "path": "src/adapter/targets/InputElementTarget.ts",
+    "sha256": "9b32dd89ae1d846d67714f6ae724392e9eb8459ea093521463167d0041fc23de",
+    "bytes": 5556
+  },
+  {
+    "path": "src/core/composite-map.ts",
+    "sha256": "6b53994ae31317e0109bd890bc23b8219b03f2caf584904fa7200b9514ce293c",
+    "bytes": 3728
+  },
+  {
+    "path": "src/core/romaji/RomKanaRule.ts",
+    "sha256": "c5f709e623b6af17ace5fd344a6ed2452cb7ee7333313b37e499ba754134d8f9",
+    "bytes": 18590
+  },
+  {
+    "path": "src/core/romaji/RomajiInput.ts",
+    "sha256": "1b7d7ff57a1bf526fcf52ab70760dd450c9e26f6c85268a3c605daca24304e87",
+    "bytes": 6497
+  },
+  {
+    "path": "src/core/skk/editor/EditorFactory.ts",
+    "sha256": "488fd06f0800152d316ae83de8ad349e20b5cd30a95f518a1de6e46845091831",
+    "bytes": 1408
+  },
+  {
+    "path": "src/core/skk/editor/IEditor.ts",
+    "sha256": "4567c7d28e658b43461e9aefe1c8f06f3641b8b441a1b957a1a5cd9c65094dbf",
+    "bytes": 2720
+  },
+  {
+    "path": "src/core/skk/input-mode/AbstractInputMode.ts",
+    "sha256": "d371d45d44f331ff0dc0d3103ede3b7d3ab04b1500f456ddff97225aee0f1885",
+    "bytes": 1018
+  },
+  {
+    "path": "src/core/skk/input-mode/AbstractKanaMode.ts",
+    "sha256": "c6f373c5c9e61dd23e3e443a146fd65acbbaf1402357ac387d037e927198e416",
+    "bytes": 3201
+  },
+  {
+    "path": "src/core/skk/input-mode/AsciiMode.ts",
+    "sha256": "40e0e1b4bf3018a9d9515fac869e8a74f7da020b7844e19315ceec59ab8f11ff",
+    "bytes": 1809
+  },
+  {
+    "path": "src/core/skk/input-mode/HiraganaMode.ts",
+    "sha256": "e2e9225927795e10acd2f746560688b2fba644fc1141608e552462f4dc84917b",
+    "bytes": 828
+  },
+  {
+    "path": "src/core/skk/input-mode/IInputMode.ts",
+    "sha256": "b55bfb92a69c85f0b0a6f8c804608ae0c5504348c2b0f4568dee00303a9ec25b",
+    "bytes": 694
+  },
+  {
+    "path": "src/core/skk/input-mode/KatakanaMode.ts",
+    "sha256": "20f38b90f95dba413f26c55dd4badae1f31e42ba66b2b702a2438f70b6d2ab4f",
+    "bytes": 827
+  },
+  {
+    "path": "src/core/skk/input-mode/ZeneiMode.ts",
+    "sha256": "953db3fde455d11f2805ed2438f0f4d6ce4af81ae143502d8ada6a47e2cd227b",
+    "bytes": 3708
+  },
+  {
+    "path": "src/core/skk/input-mode/henkan/AbbrevMode.ts",
+    "sha256": "718c1e48889cc49f8f55472296fbb5b794629097c6008b9644237d0608473474",
+    "bytes": 4657
+  },
+  {
+    "path": "src/core/skk/input-mode/henkan/AbstractHenkanMode.ts",
+    "sha256": "5ef1c1e4627c73d1c4341ef1e4543fd2bbabbef38fe484d1a8e62298d6d9d9f3",
+    "bytes": 2912
+  },
+  {
+    "path": "src/core/skk/input-mode/henkan/AbstractMidashigoMode.ts",
+    "sha256": "c450185e13a1d418a6bf91abdda381e2f82d50bd5860f20d0c56c7db7d85bc39",
+    "bytes": 173
+  },
+  {
+    "path": "src/core/skk/input-mode/henkan/CandidateDeletionMode.ts",
+    "sha256": "ff81fa8e706d0a00e81ffdad53666d42fd7633a214e8b126b5c9f67b9e9cd347",
+    "bytes": 4586
+  },
+  {
+    "path": "src/core/skk/input-mode/henkan/InlineHenkanMode.ts",
+    "sha256": "291b0756a8f9afddbf99375cf68e025458606b7488e8269d2705b45dc1d47a2c",
+    "bytes": 9628
+  },
+  {
+    "path": "src/core/skk/input-mode/henkan/KakuteiMode.ts",
+    "sha256": "e65335106a09b6e01f35d7fb5560d255c2b3b8a4c4428c9ba13f9ec34a3883c6",
+    "bytes": 6854
+  },
+  {
+    "path": "src/core/skk/input-mode/henkan/MenuHenkanMode.ts",
+    "sha256": "3df9858d46ba7c00f4cee8ee50630331725b9e763fedb80063ea4f5025ea0ff1",
+    "bytes": 6423
+  },
+  {
+    "path": "src/core/skk/input-mode/henkan/MidashigoMode.ts",
+    "sha256": "4f393a8e7f2bf10442a53d5fcabea60910bdbd18be7067a0c0b3708b44b742c9",
+    "bytes": 13424
+  },
+  {
+    "path": "src/core/skk/input-mode/henkan/RegistrationMode.ts",
+    "sha256": "81422f9b9a0b99d736bce7ab6f93fb6b1f6b54e4b704b8cb857322cbcbd6bb24",
+    "bytes": 23670
+  },
+  {
+    "path": "src/core/skk/jisyo/CompositeJisyoProvider.ts",
+    "sha256": "112170b7f9510bf570b3f7f0d0c5c324291083d72bcb9e1c81a3642d4a0ad178",
+    "bytes": 13086
+  },
+  {
+    "path": "src/core/skk/jisyo/IJisyoProvider.ts",
+    "sha256": "ec88a39f920ef070d3b580e1450e81adffa62f14deb843fb04bf69bf401e5bd7",
+    "bytes": 1381
+  },
+  {
+    "path": "src/core/skk/jisyo/IJisyoStorage.ts",
+    "sha256": "73ded250108b5708ede65d28a81aaa1549a2ed46302becda479afed694f9af18",
+    "bytes": 2937
+  },
+  {
+    "path": "src/core/skk/jisyo/JisyoParser.ts",
+    "sha256": "062f09271ef76e2967188eb77a5d62be0d6a9b10b20b75a362de3489f2283298",
+    "bytes": 8440
+  },
+  {
+    "path": "src/core/skk/jisyo/JsonJisyoParser.ts",
+    "sha256": "e91a6fef6e0902178e884448b244f6ec7c76f9328f27ffbc619bcdf44944115e",
+    "bytes": 8687
+  },
+  {
+    "path": "src/core/skk/jisyo/SimpleMemoryJisyoProvider.ts",
+    "sha256": "68c1d367605f2b044115bc1e5da88a903d65c55b5806c46b3e6cd45b6395e466",
+    "bytes": 4977
+  },
+  {
+    "path": "src/core/skk/jisyo/candidate.ts",
+    "sha256": "9259ecdd200c7433ede9f4ffd654b0df5ed03ea03a8abe6cf2a3efe1159f4f0c",
+    "bytes": 1959
+  },
+  {
+    "path": "src/core/skk/jisyo/entry.ts",
+    "sha256": "afa25b2dcdd05d3aa8c72cc8670887a4a5ef818658c5c4148539df99ef24cd7a",
+    "bytes": 1999
+  },
+  {
+    "path": "src/core/skk/jisyo/okuri.ts",
+    "sha256": "9fba2a1cc27f227578d5e0791fad2224e31a0bfa35109f1f4e0896b2fdc4cc28",
+    "bytes": 3229
+  },
+  {
+    "path": "src/core/skk/jisyo/types.ts",
+    "sha256": "bb2fded433c0c6f51e5619f71217a329df8192007028810f5713600f8ac46e2d",
+    "bytes": 326
+  },
+  {
+    "path": "src/core/util/keyUtils.ts",
+    "sha256": "a5451a524f54d282ec15539b2d7b40ecd1d1c07e6fd0a0fd8cb7f80e80c6c3ad",
+    "bytes": 4410
+  },
+  {
+    "path": "src/hud/FloatingHUD.ts",
+    "sha256": "9d4ce4a8bb390901eb02ce341072a017eea5cf402d2bd3188d8ea891cf14abaa",
+    "bytes": 6429
+  },
+  {
+    "path": "src/hud/RegistrationModal.ts",
+    "sha256": "09cacb3d32821451127389ad7dc45b6b3db65861fbd5075a8cea1e0410bcd984",
+    "bytes": 14815
+  },
+  {
+    "path": "src/poc/PocEngine.ts",
+    "sha256": "132918fca38b5a579035a76348e4cb815325e2ee13c413060ab112ec0d967161",
+    "bytes": 9419
+  },
+  {
+    "path": "src/settings/model.ts",
+    "sha256": "ae9abcbba60afa8a51ce128c6cf0b8ee716b2e0a95f2f944bb6bcc3f5d79142c",
+    "bytes": 6938
+  },
+  {
+    "path": "src/storage/indexedDbSchema.ts",
+    "sha256": "61793c860ff74a8b76a54f558928c887baa9da42b8789ba7f7046c7d038915fa",
+    "bytes": 4058
+  },
+  {
+    "path": "src/storage/jisyo/CooperativeDictionaryParser.ts",
+    "sha256": "82a0dcd0f62c0cba6fd93e388f3b68fb1e2933b45d74b4ad480113522a5e0764",
+    "bytes": 7896
+  },
+  {
+    "path": "src/storage/jisyo/DictionaryLoader.ts",
+    "sha256": "bab83cb0d4a0370a4a43fa25c709f867f61f2cf1e5f714cd54009c1db65652a5",
+    "bytes": 11939
+  },
+  {
+    "path": "src/storage/jisyo/IndexedDbJisyoStore.ts",
+    "sha256": "73e58b82d5728ee5d619487f1d5c8c4226048d03dbacbd81335ed886f05be63b",
+    "bytes": 28724
+  },
+  {
+    "path": "src/storage/jisyo/JisyoBufferDecoder.ts",
+    "sha256": "c3b9ad607d89122c391762474c1f37e78f8fc4c75f7c8ab2fa3fc1ee299b9912",
+    "bytes": 1491
+  },
+  {
+    "path": "src/storage/jisyo/RemoteJisyoStore.ts",
+    "sha256": "2fe0f828cb9830432e04a252e4884660b56f5e22efb326e7ed86adfc9438ef1c",
+    "bytes": 3770
+  },
+  {
+    "path": "src/storage/jisyo/SystemDictionaryConfiguration.ts",
+    "sha256": "5c58ce23deddcdff46df6fde34c963f310db3f7e70c63c76d24e8efca9f28c2d",
+    "bytes": 5809
+  },
+  {
+    "path": "src/storage/jisyo/SystemDictionaryManager.ts",
+    "sha256": "9b0af0f87323b0cbf80a633dd4688f8044999dff99f91c6af4616b3681d83c21",
+    "bytes": 13823
+  },
+  {
+    "path": "src/storage/rpc/messages.ts",
+    "sha256": "133bcfe1738f64b6d9ee9fa2e6644a4e87858310b24f49da481b127e43b683f0",
+    "bytes": 2149
+  },
+  {
+    "path": "src/storage/rpc/runtimeClient.ts",
+    "sha256": "99eb90351d263f29af28d81fe819c4c3d8b5ac1207cccfa1e26f8bc5c07030c0",
+    "bytes": 2613
+  },
+  {
+    "path": "src/storage/rpc/systemDictionaryRpc.ts",
+    "sha256": "d901123e4f52f85e3c919fd0862bf61873248b0a48bfc8529aeb7ce088acfd29",
+    "bytes": 4394
+  },
+  {
+    "path": "src/storage/rpc/systemDictionaryUpload.ts",
+    "sha256": "ae3c3f4f2174c1b9666709eff5f7ec2ab24b01d00a224ef0e25c5ac9b6da62e9",
+    "bytes": 3407
+  },
+  {
+    "path": "src/storage/sync/BroadcastChannelSync.ts",
+    "sha256": "3de4600581d0aa08110d52d09bcca653817d86e200845712cf2bd2ab59b99737",
+    "bytes": 6965
+  },
+  {
+    "path": "src/storage/sync/RuntimeMessageSync.ts",
+    "sha256": "e8e141953375632a276f63f1dd3ef5c571becd8afda95e4ddb0295a8914f52a3",
+    "bytes": 6060
+  },
+  {
+    "path": "src/storage/user-jisyo/IndexedDbUserStore.ts",
+    "sha256": "8240eb73ad2020af8f4a089d85ee53940437af3173cbb65b12922daecc7b6781",
+    "bytes": 15127
+  },
+  {
+    "path": "src/storage/user-jisyo/RemoteUserStore.ts",
+    "sha256": "9e60dfb952e40dc5e461cfa548e4e099db62f80a5f865415241dc49c7abf571c",
+    "bytes": 9426
+  },
+  {
+    "path": "test/browser/baseline-v3-indexeddb-jisyo-store.ts",
+    "sha256": "9477c19eeee70a141035403a4e048605e9fad77188bdbc36ac2710bb2bfdf040",
+    "bytes": 17899
+  },
+  {
+    "path": "test/browser/production-dictionary.ts",
+    "sha256": "9465e9bc6380243307a30a41905fd7d4b74cc62129a24fec3a4afcefb6c74890",
+    "bytes": 19821
+  },
+  {
+    "path": "test/caret-coordinates.mjs",
+    "sha256": "30eb528ab0c20c46f4ac5907852aad1d2971e3e5fdf9ca3e6a0d3f6204e8fcb0",
+    "bytes": 5613
+  },
+  {
+    "path": "test/firefox-verify.mjs",
+    "sha256": "350af05a519be0018a28bc5938999551cf6419f26dc0890ab54a9dff96f6d65e",
+    "bytes": 20294
+  },
+  {
+    "path": "test/poc-verify.mjs",
+    "sha256": "7a1c1dbe88ee53b49966bc804ea66af85dc1cf0d5595da3a7d69e6434949cd69",
+    "bytes": 15436
+  },
+  {
+    "path": "test/production-candidate-timing.mjs",
+    "sha256": "924d0f9b959efac74b2f039cf6913dc3d6e12d14bf18c12ef5d14023ed9ceef6",
+    "bytes": 22405
+  },
+  {
+    "path": "test/system-dictionary-e2e.mjs",
+    "sha256": "677fbe6959ca7e14ad0a08178e69bf7efef4a1030e5f7d4fd37cdf22c479817c",
+    "bytes": 46480
+  },
+  {
+    "path": "test/unit/browser-adapter.test.ts",
+    "sha256": "5bed62212ba5bfed62ae285e954a345c1a571f4f1699b48e8aea61865600d0db",
+    "bytes": 53229
+  },
+  {
+    "path": "test/unit/candidate-metadata.test.ts",
+    "sha256": "36bbe11dedde7a0370b32a9b14cc7428ba3b7fb23d6dd790bab2b4d2cc9ecb61",
+    "bytes": 9029
+  },
+  {
+    "path": "test/unit/composite-jisyo-provider.test.ts",
+    "sha256": "70a4f372b4cc9d8e78a1104e6b389a88fa331a9d9bdeefa0e763fdb625ac39ba",
+    "bytes": 16295
+  },
+  {
+    "path": "test/unit/content-engine.test.ts",
+    "sha256": "f9a1df7d29c63ae44b7c5525e6407ce839382b0bbdfeed0cc4280917134e7017",
+    "bytes": 21380
+  },
+  {
+    "path": "test/unit/cooperative-dictionary-parser.test.ts",
+    "sha256": "abf470b20d00ce5500a73ab08bdf157c9fdc37b1e24f766a607dc8a2d2e30f2f",
+    "bytes": 2985
+  },
+  {
+    "path": "test/unit/core-edge-cases.test.ts",
+    "sha256": "1bd74a7ed0fc13337a0ecbfc9a3a6deaa8d355a801cbad0d23970aa57c36ea51",
+    "bytes": 26501
+  },
+  {
+    "path": "test/unit/core.test.ts",
+    "sha256": "91e67fb0fb08712448bdd010d45504d79eb31d02b1c7cfc0807bf26bb41ab7b1",
+    "bytes": 7608
+  },
+  {
+    "path": "test/unit/dictionary-loader.test.ts",
+    "sha256": "1642e8067d17641731968984ff4a432216347e787f227cef51ed87cd25cdba15",
+    "bytes": 21399
+  },
+  {
+    "path": "test/unit/editor-targets.test.ts",
+    "sha256": "8cb2e658de508c7e8c5d790932ca3ac9c300b3a2aa035f509f7c1ca40654eae1",
+    "bytes": 24999
+  },
+  {
+    "path": "test/unit/indexeddb-jisyo-store.test.ts",
+    "sha256": "5031519038351097b33cda99a38cb633d1abb63d57d5fc567bca39a5d2f8681d",
+    "bytes": 19713
+  },
+  {
+    "path": "test/unit/input-mode.test.ts",
+    "sha256": "4e949c6de3c1678c9e019d6abd631ebaaa679d5ee32fb467216d8f028d3212cb",
+    "bytes": 33754
+  },
+  {
+    "path": "test/unit/jisyo-buffer-decoder.test.ts",
+    "sha256": "a129007e253366e749446eea827087e28feb6a5c44f2dd9ea88511f483de6d6d",
+    "bytes": 3439
+  },
+  {
+    "path": "test/unit/jisyo-parser.test.ts",
+    "sha256": "b960aa57f01880cf68ae1f4268e59cc37174a463aa6cc5244f0884348fea2fdf",
+    "bytes": 29030
+  },
+  {
+    "path": "test/unit/json-jisyo-parser.test.ts",
+    "sha256": "726f3cade1b5fb2c8c103693474526160b72de4eea15c872e78ada8d0eaedbfb",
+    "bytes": 6797
+  },
+  {
+    "path": "test/unit/mocks/MockEditor.ts",
+    "sha256": "72acc6886c756fe6ef891517b8b2d94a13d986b93c2835fc507f3ffdf85edf87",
+    "bytes": 16692
+  },
+  {
+    "path": "test/unit/registration-modal.test.ts",
+    "sha256": "f6c0907159d3c8de038cb49be083116a82bc54b527d4f1f3917718a90769a1a4",
+    "bytes": 28923
+  },
+  {
+    "path": "test/unit/registration-mode.test.ts",
+    "sha256": "54dd05090e2e481196d948ac23136dfa3778a96e562a64ffa579f425a61db2ab",
+    "bytes": 31737
+  },
+  {
+    "path": "test/unit/registration-state-transitions.test.ts",
+    "sha256": "c315a3675c924ab73f823a334842cd1354bfe2956ad2735fad16ff4d76db36d8",
+    "bytes": 44566
+  },
+  {
+    "path": "test/unit/remote-stores.test.ts",
+    "sha256": "ec80e7e98cfd119ead83abd9be1ad1d023982ebda9b6aa70204661b8344d06f3",
+    "bytes": 12241
+  },
+  {
+    "path": "test/unit/romaji.test.ts",
+    "sha256": "6fa8d9d9f9aa97ff3bc04b1623c1933a09f6e19499f7240717dcc654e8fa9307",
+    "bytes": 23001
+  },
+  {
+    "path": "test/unit/settings-model.test.ts",
+    "sha256": "668713634a182322ef7154af8a46f37595c1e4e104d9ca4fa5b0a74a78fba245",
+    "bytes": 13386
+  },
+  {
+    "path": "test/unit/system-dictionary-manager.test.ts",
+    "sha256": "dd94947158427a17be61e4a03ab4ed13eb0d15fd0866b7c37487abbd62440f6d",
+    "bytes": 19535
+  },
+  {
+    "path": "test/unit/system-dictionary-upload.test.ts",
+    "sha256": "a8928a976591eab5316ea301902fb5a2bd1e980b4fe39cf83abcce49dc88b736",
+    "bytes": 4151
+  },
+  {
+    "path": "test/unit/user-jisyo-store.test.ts",
+    "sha256": "a1439a1012122ff8858b05780f565fafd0200c7640d5b9c41bff25da25de6cc8",
+    "bytes": 11724
+  },
+  {
+    "path": "vitest.config.ts",
+    "sha256": "9b14add1d4a9e79e9d38402117d79c0ceeb5e71cfbdd1fa1f0af759996a9343f",
+    "bytes": 338
+  },
+  {
+    "path": "wxt.config.ts",
+    "sha256": "e4dc4b76a1a2d6987fba5f1075f52a15a539c84351fbae6256ba0d76cb32838f",
+    "bytes": 1457
+  }
+]
