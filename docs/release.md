@@ -223,3 +223,8 @@ eb2b557c6d431f6adc658a618a356e72843660dea828ca485cc1a9b13b768476  herissonskk-br
 ## Firefox 掲載 URL の確定（2026-09-23）
 
 作者から掲載情報・画像の登録完了と、掲載 URL https://addons.mozilla.org/ja/firefox/addon/herissonskk-for-firefox/ の報告がありました。認証なしの HTTP リクエストは 404 を返し、現時点では一般公開を確認できていません。README に公開待ちと明記して掲載先を追加しました。審査通過・ストアからのインストールは未確認です。
+
+
+## Chrome Web Store 提出準備（2026-09-23）
+
+[Chrome 初回提出手順](./chrome-store-submission-0.1.3.md)を準備しました。Chrome の未使用 storage 権限と Firefox 専用メタデータを削除し、型検査・入力 E2E・辞書管理とオフライン再起動 E2E が成功しました。Firefox 配布物は全ファイル同一です。更新した Chrome ZIP は `.local/releases/0.1.3/chrome-store/` に保管しました。開発者登録とストア提出は未実施です。

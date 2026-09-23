@@ -5,20 +5,23 @@ export default defineConfig({
   manifest: ({ browser, manifestVersion }) => ({
     name: `HerissonSKK for ${browser === 'firefox' ? 'Firefox' : 'Chrome'}`,
     description: 'ブラウザーの入力欄で使える SKK 日本語入力。かな漢字変換、単語登録、候補の学習をローカルで処理します。',
-    permissions: ['storage'],
+    ...(browser === 'firefox' ? { permissions: ['storage'] } : {}),
     host_permissions: ['https://raw.githubusercontent.com/*'],
     ...(manifestVersion === 3
       ? { optional_host_permissions: ['http://*/*', 'https://*/*'] }
       : { optional_permissions: ['http://*/*', 'https://*/*'] }),
-    browser_specific_settings: {
-      gecko: {
-        id: 'herissonskk@yhayase',
-        strict_min_version: '109.0',
-        data_collection_permissions: {
-          required: ['none'],
+    // 審査中の Firefox 配布物を維持し、Chrome には不要な宣言を含めません。
+    ...(browser === 'firefox' ? {
+      browser_specific_settings: {
+        gecko: {
+          id: 'herissonskk@yhayase',
+          strict_min_version: '109.0',
+          data_collection_permissions: {
+            required: ['none'],
+          },
         },
       },
-    },
+    } : {}),
   }),
   hooks: {
     'build:publicAssets': (_wxt, files) => {
