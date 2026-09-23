@@ -12,6 +12,8 @@ HerissonSKK は Yasuhiro Hayase が制作・公開するプロジェクトです
 
 ## 利用案内
 
+Firefox のストア掲載先は [HerissonSKK for Firefox](https://addons.mozilla.org/ja/firefox/addon/herissonskk-for-firefox/) です。2026-09-23 時点では公開待ちで、まだストアからインストールできません。
+
 - [基本操作・対応環境](docs/store-listing.md)
 - [埋め込み文書での入力と制約](docs/embedded-documents.md)
 - [候補削除（X）の操作と対象](docs/candidate-deletion.md)

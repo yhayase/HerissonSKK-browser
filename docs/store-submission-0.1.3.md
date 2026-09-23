@@ -17,7 +17,7 @@
 | 項目 | 内容 |
 | :--- | :--- |
 | 名前 | HerissonSKK for Firefox |
-| 希望する掲載 URL の末尾 | herissonskk（空いていない場合は herissonskk-for-firefox） |
+| 掲載 URL | https://addons.mozilla.org/ja/firefox/addon/herissonskk-for-firefox/ |
 | 概要 | ブラウザーの入力欄で SKK 方式の日本語入力を使えます。かな漢字変換、単語登録、候補の学習をローカルで処理します。 |
 | ライセンス | MIT |
 | サポート Web サイト | https://github.com/yhayase/HerissonSKK-browser/issues |
@@ -49,4 +49,4 @@ TypeScript を WXT／Vite で変換・結合・最小化しています。独自
 - [Mozilla の提出手順](https://extensionworkshop.com/documentation/publish/submitting-an-add-on/)
 - [AMO のバージョン重複検証](https://github.com/mozilla/addons-server/blob/master/src/olympia/versions/utils.py)
 
-この文書の作成時点では AMO 掲載申請は未実施です。アカウント上の操作は作者が行います。
+作者が掲載情報・アイコン・スクリーンショットと説明を登録しました。2026-09-23 に掲載 URL を認証なしで確認したところ HTTP 404 で、一般公開はまだ確認できていません。審査・公開の詳細な状態は開発者管理画面で確認します。課金・有償サービス・追加ハードウェアのチェックは、作者の判断で付けていません。Android の物理キーボード要件は説明文に残します。

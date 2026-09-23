@@ -218,3 +218,8 @@ eb2b557c6d431f6adc658a618a356e72843660dea828ca485cc1a9b13b768476  herissonskk-br
 26aa7f417ddb066207800ed3f8332de288b749d7ce25622230de88d5bfe2c2a6  herissonskk-browser-0.1.3-firefox.zip
 188e5885c0b647b177f3a639425be9765d2df23c58301fd163e5edcd47a49901  herissonskk-browser-0.1.3-sources.zip
 ```
+
+
+## Firefox 掲載 URL の確定（2026-09-23）
+
+作者から掲載情報・画像の登録完了と、掲載 URL https://addons.mozilla.org/ja/firefox/addon/herissonskk-for-firefox/ の報告がありました。認証なしの HTTP リクエストは 404 を返し、現時点では一般公開を確認できていません。README に公開待ちと明記して掲載先を追加しました。審査通過・ストアからのインストールは未確認です。
