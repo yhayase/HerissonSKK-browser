@@ -11,7 +11,7 @@ HerissonSKK（えりそん SKK）は、ブラウザーの入力欄で使える S
 ## インストール
 
 - **Firefox**: [HerissonSKK for Firefox](https://addons.mozilla.org/ja/firefox/addon/herissonskk-for-firefox/)（2026-09-23 時点では公開待ちです）。
-- **Chrome**: Chrome Web Store への掲載準備中です。
+- **Chrome**: Chrome Web Store へ審査提出済みです（2026-09-23 時点では公開待ちです）。
 
 初回の基本辞書取得にはインターネット接続が必要です。取得済みの辞書による変換はオフラインでも利用できます。
 
