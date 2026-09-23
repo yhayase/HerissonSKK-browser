@@ -26,7 +26,7 @@ Firefox の ID は `herissonskk@yhayase` を維持します。同じ ID の既�
   - プライバシーポリシー: https://github.com/yhayase/HerissonSKK-browser/blob/main/docs/privacy-policy.md
   - 操作説明: https://github.com/yhayase/HerissonSKK-browser/blob/main/README.md
 - アイコンは公式アプリの配布・紹介に利用可、別製品への流用は個別許可と確定しました。利用条件を配布物に同梱しています。
-- 署名済み 0.1.2 を取得し、Android の既存 0.1.1 から更新して保存データの保持と iframe・候補削除・カタカナでの Ctrl+j を確認します。
+- Firefox 0.1.2 の署名済み XPI を取得し、提出物との一致を確認しました。保存先は `.local/releases/0.1.2/herissonskk-browser-0.1.2-firefox-signed.xpi` です。作者の判断により、Android の追加確認は今回のリリース条件から外しました。
 - Chrome 開発者登録・提出状況を確認し、準備が整ったストアから提出します。
 
-この資料の作成時点では、ストアへのアップロード、GitHub の公開設定変更、署名済み 0.1.2 の実機確認は未実施です。
+非掲載版 0.1.2 の提出と署名済み XPI の取得は完了しました。ストア掲載、GitHub の公開設定変更、署名済み 0.1.2 の実機確認は未実施です。
