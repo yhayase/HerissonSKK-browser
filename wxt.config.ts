@@ -12,7 +12,7 @@ export default defineConfig({
       : { optional_permissions: ['http://*/*', 'https://*/*'] }),
     browser_specific_settings: {
       gecko: {
-        id: 'skk-browser-extension@yhayase',
+        id: 'herissonskk@yhayase',
         strict_min_version: '109.0',
         data_collection_permissions: {
           required: ['none'],

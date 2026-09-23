@@ -1,121 +1,109 @@
 import { AbstractHenkanMode } from "./AbstractHenkanMode";
 import type { AbstractKanaMode } from "../AbstractKanaMode";
-import type { IEditor } from "../../editor/IEditor";
+import type { IEditor, DeletionConfirmation } from "../../editor/IEditor";
 import { KakuteiMode } from "./KakuteiMode";
 import type { InlineHenkanMode } from "./InlineHenkanMode";
 import type { Candidate } from "../../jisyo/candidate";
 
+/** インライン候補の削除を明示的に確認します。辞書操作中は重複実行を防ぎます。 */
 export class CandidateDeletionMode extends AbstractHenkanMode {
-    private readonly prevMode: InlineHenkanMode;
-    private readonly candidate: Candidate;
-    private readonly midashigo: string;
+    private busy = false;
+    private readonly confirmation: DeletionConfirmation;
 
-    private constructor(context: AbstractKanaMode, editor: IEditor, prevMode: InlineHenkanMode, midashigo: string, candidate: Candidate) {
+    private constructor(
+        editor: IEditor,
+        private readonly prevMode: InlineHenkanMode,
+        private readonly midashigo: string,
+        private readonly candidate: Candidate,
+        okuri: string,
+        displayReading: string,
+    ) {
         super("Delete?", editor);
-        this.prevMode = prevMode;
-        this.midashigo = midashigo;
-        this.candidate = candidate;
+        this.confirmation = { reading: displayReading, candidate: candidate.word, okuri };
     }
 
-    public static async create(context: AbstractKanaMode, editor: IEditor, prevMode: InlineHenkanMode, midashigo: string, candidate: Candidate): Promise<CandidateDeletionMode> {
-        const mode = new CandidateDeletionMode(context, editor, prevMode, midashigo, candidate);
-        await mode.showInlineDialog(context, midashigo, candidate);
+    public static create(editor: IEditor, prevMode: InlineHenkanMode, midashigo: string, candidate: Candidate, okuri: string, displayReading: string): CandidateDeletionMode {
+        const mode = new CandidateDeletionMode(editor, prevMode, midashigo, candidate, okuri, displayReading);
+        editor.showDeletionConfirmation(mode.confirmation);
         return mode;
     }
 
-    private async showInlineDialog(context: AbstractKanaMode, midashigo: string, candidate: Candidate): Promise<void> {
-        await this.editor.showCandidate(undefined, `Really delete \"${midashigo} /${candidate.word}/\"? (Y/N)`, "");
+    private warn(message: string): void {
+        if (this.busy) return;
+        this.confirmation.warning = message;
+        this.confirmation.error = undefined;
+        this.editor.showDeletionConfirmation({ ...this.confirmation });
     }
 
-    async onLowerAlphabet(context: AbstractKanaMode, key: string): Promise<void> {
-        if (key === "y" || key === "n") {
-            context.showErrorMessage("Type Y or N in upper case");
-            return;
-        }
-        context.showErrorMessage("Type Y or N");
-    }
+    public isDeleting(): boolean { return this.busy; }
 
-    private async clearInlineDialogAndReturnToKakuteiMode(context: AbstractKanaMode) {
-        context.setHenkanMode(KakuteiMode.create(context, this.editor));
-        await this.editor.clearCandidate();
-        await context.insertStringAndShowRemaining("", "", false);
-    }
-
-    async onUpperAlphabet(context: AbstractKanaMode, key: string): Promise<void> {
-        if (key === "Y") {
-            await this.editor.getJisyoProvider().deleteCandidate(this.midashigo, this.candidate);
-            await this.clearInlineDialogAndReturnToKakuteiMode(context);
-            return;
-        }
-
-        if (key === "N") {
-            context.setHenkanMode(this.prevMode);
-            await this.prevMode.showCandidate(context);
-            return;
-        }
-
-        context.showErrorMessage("Type Y or N");
-    }
-
-    async onCtrlG(context: AbstractKanaMode): Promise<void> {
+    private async cancel(context: AbstractKanaMode): Promise<void> {
+        if (this.busy || context.getHenkanMode() !== this || this.editor.isDeletionContextActive?.() === false) return;
+        this.editor.clearDeletionConfirmation();
         context.setHenkanMode(this.prevMode);
         await this.prevMode.showCandidate(context);
     }
 
-    async onNumber(context: AbstractKanaMode, key: string): Promise<void> {
-        context.showErrorMessage("Type Y or N");
+    async onLowerAlphabet(_context: AbstractKanaMode, key: string): Promise<void> {
+        this.warn(key === "y" || key === "n" ? "大文字の Y または N を押してください" : "Y または N を押してください");
     }
 
-    async onSymbol(context: AbstractKanaMode, key: string): Promise<void> {
-        context.showErrorMessage("Type Y or N");
+    async onUpperAlphabet(context: AbstractKanaMode, key: string): Promise<void> {
+        if (key === "N") return this.cancel(context);
+        if (key !== "Y") {
+            this.warn("Y または N を押してください");
+            return;
+        }
+        if (this.busy || context.getHenkanMode() !== this || this.editor.isDeletionContextActive?.() === false) return;
+        this.busy = true;
+        this.confirmation.warning = "削除中…";
+        this.confirmation.error = undefined;
+        this.editor.showDeletionConfirmation({ ...this.confirmation });
+        let deleted = false;
+        let failed = false;
+        try {
+            deleted = await this.editor.getJisyoProvider().deleteCandidate(this.midashigo, this.candidate);
+        } catch {
+            failed = true;
+        }
+        // フォーカス移動や登録の取消後に古い結果で表示・入力状態を書き戻しません。
+        if (context.getHenkanMode() !== this || this.editor.isDeletionContextActive?.() === false) return;
+        this.busy = false;
+        if (!deleted) {
+            this.confirmation.error = failed ? "削除に失敗しました。Y で再試行、N で戻ります" : "個人辞書に削除対象がありません。N で戻ります";
+            this.confirmation.warning = undefined;
+            this.editor.showDeletionConfirmation({ ...this.confirmation });
+            return;
+        }
+        this.editor.clearDeletionConfirmation();
+        context.setHenkanMode(KakuteiMode.create(context, this.editor));
+        await this.editor.clearMidashigo();
+        await this.editor.clearCandidate();
+        this.editor.showRemainingRomaji("", false, 0);
     }
 
-    async onSpace(context: AbstractKanaMode): Promise<void> {
-        context.showErrorMessage("Type Y or N");
-    }
-
-    async onEnter(context: AbstractKanaMode): Promise<void> {
-        context.showErrorMessage("Type Y or N");
-    }
-
-    async onBackspace(context: AbstractKanaMode): Promise<void> {
-        context.showErrorMessage("Type Y or N");
-    }
-
-    async onCtrlJ(context: AbstractKanaMode): Promise<void> {
-        context.showErrorMessage("Type Y or N");
-    }
+    async onCtrlG(context: AbstractKanaMode): Promise<void> { await this.cancel(context); }
+    async onNumber(_context: AbstractKanaMode): Promise<void> { this.warn("Y または N を押してください"); }
+    async onSymbol(_context: AbstractKanaMode): Promise<void> { this.warn("Y または N を押してください"); }
+    async onSpace(_context: AbstractKanaMode): Promise<void> { this.warn("Y または N を押してください"); }
+    async onEnter(_context: AbstractKanaMode): Promise<void> { this.warn("Y または N を押してください"); }
+    async onBackspace(_context: AbstractKanaMode): Promise<void> { this.warn("Y または N を押してください"); }
+    async onCtrlJ(_context: AbstractKanaMode): Promise<void> { this.warn("Y または N を押してください"); }
 
     public override getActiveKeys(): Set<string> {
         const keys = new Set<string>();
-
-        // All alphabet, number, and symbol keys (lower and upper) as they are caught to show an error except for Y and N.
-        // Y and N are treated separately in onUpperAlphabet.
-        for (let i = 32; i <= 126; i++) { // ASCII printable characters
+        for (let i = 32; i <= 126; i++) {
             const char = String.fromCharCode(i);
             if ("a" <= char && char <= "z") {
                 keys.add(char);
                 keys.add("shift+" + char);
-            } else if ("A" <= char && char <= "Z") {
-                // Uppercase letters are already added by the above case
-            } else {
+            } else if (!("A" <= char && char <= "Z")) {
                 keys.add(char);
             }
         }
-
-        // Other keys like enter, backspace also throw errors.
-        // Add them if they should be explicitly handled to show "Type Y or N".
-        keys.add("enter");
-        keys.add("backspace");
-        keys.add("ctrl+j");
-
-        // Add Ctrl+G to return to the previous mode.
-        keys.add("ctrl+g");
-
+        for (const key of ["enter", "backspace", "ctrl+j", "ctrl+g"]) keys.add(key);
         return keys;
     }
 
-    public override getContextualName(): string {
-        return "candidateDeletion";
-    }
+    public override getContextualName(): string { return "candidateDeletion"; }
 }

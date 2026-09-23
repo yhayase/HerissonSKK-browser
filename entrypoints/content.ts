@@ -1,7 +1,9 @@
 import { BrowserEditorAdapter } from '@/src/adapter/BrowserEditorAdapter';
 import { HiraganaMode } from '@/src/core/skk/input-mode/HiraganaMode';
+import { AbstractKanaMode } from '@/src/core/skk/input-mode/AbstractKanaMode';
 import { AsciiMode } from '@/src/core/skk/input-mode/AsciiMode';
 import { RegistrationMode } from '@/src/core/skk/input-mode/henkan/RegistrationMode';
+import { CandidateDeletionMode } from '@/src/core/skk/input-mode/henkan/CandidateDeletionMode';
 import { CompositeJisyoProvider } from '@/src/core/skk/jisyo/CompositeJisyoProvider';
 import type { IJisyoStorage, IUserJisyoStorage } from '@/src/core/skk/jisyo/IJisyoStorage';
 import { RemoteJisyoStore } from '@/src/storage/jisyo/RemoteJisyoStore';
@@ -67,15 +69,51 @@ export class SkkContentEngine {
   }
 
   private keyQueue: Promise<void> = Promise.resolve();
+  private pendingKeyActions = 0;
+  private pendingKanaActivation = 0;
+  private focusGeneration = 0;
+
+  private getDeletionMode(): CandidateDeletionMode | null {
+    const inputMode = this.adapter.getCurrentInputMode();
+    const kanaMode = inputMode instanceof RegistrationMode ? inputMode.getInternalMode() : inputMode;
+    if (!(kanaMode instanceof AbstractKanaMode)) return null;
+    const henkanMode = kanaMode.getHenkanMode();
+    return henkanMode instanceof CandidateDeletionMode ? henkanMode : null;
+  }
+
+  public invalidateQueuedKeys(): void {
+    this.focusGeneration++;
+    this.pendingKanaActivation = 0;
+  }
+
+  public cancelDeletionOnWindowBlur(): void {
+    if (this.getDeletionMode()) void this.adapter.cancelComposition();
+  }
+
+  public cancelDeletionOnModalFocusDeparture(target: Element | null, modal: RegistrationModal): void {
+    if (target !== modal.getActiveInputElement() && this.getDeletionMode()) {
+      void this.adapter.cancelComposition();
+    }
+  }
 
   public enqueueKeyAction(action: () => Promise<void>): Promise<void> {
+    const target = getDeepActiveElement(document);
+    const focusGeneration = this.focusGeneration;
+    const deletionMode = this.getDeletionMode();
+    this.pendingKeyActions++;
     this.keyQueue = this.keyQueue
       .then(async () => {
         await this.isInitializedPromise;
+        // 辞書待機中に別の入力欄やフレームへ移ったキーは転記しません。
+        if (focusGeneration !== this.focusGeneration || target !== getDeepActiveElement(document) || document.hasFocus?.() === false) return;
+        if (deletionMode && (this.getDeletionMode() !== deletionMode || deletionMode.isDeleting())) return;
         await action();
       })
       .catch((err) => {
         console.error('[SKK] Key processing error:', err);
+      })
+      .finally(() => {
+        this.pendingKeyActions--;
       });
     return this.keyQueue;
   }
@@ -99,6 +137,11 @@ export class SkkContentEngine {
 
       const activeModal = RegistrationModal.getActiveModal();
       const isModalActive = activeModal?.isOpen() ?? false;
+      const target = getDeepActiveElement(document);
+      if (isModalActive && activeModal && target !== activeModal.getActiveInputElement()) {
+        this.cancelDeletionOnModalFocusDeparture(target, activeModal);
+        return;
+      }
 
       // Focus trap for modal: prevent tabbing away from the modal dialog
       if (isModalActive && e.key === 'Tab') {
@@ -108,7 +151,6 @@ export class SkkContentEngine {
         return;
       }
 
-      const target = getDeepActiveElement(document);
       if (!this.isTargetEditable(target)) {
         return;
       }
@@ -117,7 +159,15 @@ export class SkkContentEngine {
         this.adapter.setTargetElement(target);
       }
 
-      // 1. Intercept Ctrl+j to toggle between AsciiMode and HiraganaMode
+      // 保存処理を受け付けた後のキーを、完了後の新しい入力状態へ転送しません。
+      if (this.getDeletionMode()?.isDeleting() && e.key !== 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      // Ctrl+j はかな入力の開始・確定に使い、かな種別は切り替えません。
       const isCtrlJ =
         (e.ctrlKey || e.metaKey) &&
         !e.altKey &&
@@ -129,42 +179,55 @@ export class SkkContentEngine {
         e.stopPropagation();
         e.stopImmediatePropagation();
 
-        await this.enqueueKeyAction(async () => {
-          const mode = this.adapter.getCurrentInputMode();
-          if (mode instanceof RegistrationMode) {
-            await mode.ctrlJInput();
-            this.adapter.updateHUD();
-            return;
-          }
+        // 辞書の起動を待つ間も、直後の文字キーをかな入力として受け付けます。
+        if (this.adapter.getCurrentInputMode() instanceof AsciiMode && this.pendingKeyActions === 0) {
+          this.adapter.setInputMode(HiraganaMode.getInstance(this.adapter));
+          this.adapter.updateHUD();
+          return;
+        }
 
-          const isComposing =
-            this.adapter.isInMidashigo() ||
-            !!this.adapter.getCurrentCandidate() ||
-            !!this.adapter.getRemainingRomaji();
-
-          if (mode instanceof AsciiMode) {
-            this.adapter.setInputMode(HiraganaMode.getInstance(this.adapter));
-          } else if (mode instanceof HiraganaMode) {
-            if (isComposing) {
-              await mode.ctrlJInput();
-            }
-            this.adapter.updateHUD();
-          } else {
-            if (isComposing) {
+        const focusGeneration = this.focusGeneration;
+        this.pendingKanaActivation++;
+        try {
+          await this.enqueueKeyAction(async () => {
+            const mode = this.adapter.getCurrentInputMode();
+            if (mode instanceof RegistrationMode) {
               await mode.ctrlJInput();
               this.adapter.updateHUD();
-            } else {
-              this.adapter.setInputMode(HiraganaMode.getInstance(this.adapter));
+              return;
             }
-          }
-        });
+
+            const isComposing =
+              this.adapter.isInMidashigo() ||
+              !!this.adapter.getCurrentCandidate() ||
+              !!this.adapter.getRemainingRomaji();
+
+            if (mode instanceof AsciiMode) {
+              this.adapter.setInputMode(HiraganaMode.getInstance(this.adapter));
+            } else if (mode instanceof AbstractKanaMode) {
+              if (isComposing) {
+                await mode.ctrlJInput();
+              }
+              this.adapter.updateHUD();
+            } else {
+              if (isComposing) {
+                await mode.ctrlJInput();
+                this.adapter.updateHUD();
+              } else {
+                this.adapter.setInputMode(HiraganaMode.getInstance(this.adapter));
+              }
+            }
+          });
+        } finally {
+          if (focusGeneration === this.focusGeneration) this.pendingKanaActivation--;
+        }
         return;
       }
 
       const mode = this.adapter.getCurrentInputMode();
 
       // When in AsciiMode: completely pass through all keys (do not preventDefault)
-      if (mode instanceof AsciiMode) {
+      if (mode instanceof AsciiMode && this.pendingKanaActivation === 0) {
         return;
       }
 
@@ -339,15 +402,37 @@ export class SkkContentEngine {
 
 export default defineContentScript({
   matches: ['<all_urls>', '*://localhost/*', '*://127.0.0.1/*'],
+  allFrames: true,
+  matchAboutBlank: true,
+  matchOriginAsFallback: true,
   runAt: 'document_start',
   async main() {
-    const engine = new SkkContentEngine();
+    // 入力欄のない埋め込み文書では、HUD と辞書接続を生成しません。
+    let engine: SkkContentEngine | null = window === window.top ? new SkkContentEngine() : null;
+    const ensureEngine = (): SkkContentEngine => {
+      if (!engine) {
+        engine = new SkkContentEngine();
+        exposeEngine(engine);
+      }
+      return engine;
+    };
+    const exposeEngine = (activeEngine: SkkContentEngine): void => {
+      // テストと開発時の状態確認に使います。
+      (window as any).__SKK_ENGINE__ = activeEngine;
+      (window as any).__SKK_POC_ENGINE__ = activeEngine;
+      void activeEngine.isInitializedPromise.then(() => {
+        document.documentElement?.setAttribute('data-skk-initialized', 'true');
+        console.log('[SKK Extension] Content script loaded successfully.');
+      });
+    };
+    if (engine) exposeEngine(engine);
 
     window.addEventListener(
       'keydown',
       (e) => {
         if (!e.isTrusted) return;
-        engine.handleKeyDown(e);
+        if (!engine && !isTargetEditable(getDeepActiveElement(document))) return;
+        void ensureEngine().handleKeyDown(e);
       },
       { capture: true }
     );
@@ -356,23 +441,32 @@ export default defineContentScript({
       if (e && !e.isTrusted) {
         return;
       }
-      if (RegistrationModal.getActiveModal()?.isOpen()) {
+      const activeModal = RegistrationModal.getActiveModal();
+      if (activeModal?.isOpen()) {
+        engine?.cancelDeletionOnModalFocusDeparture(getDeepActiveElement(document), activeModal);
         return;
       }
       const target = getDeepActiveElement(document);
-      engine.adapter.setTargetElement(target);
-      engine.adapter.updateHUD();
+      if (!engine && !isTargetEditable(target)) return;
+      const activeEngine = ensureEngine();
+      activeEngine.adapter.setTargetElement(target);
+      activeEngine.adapter.updateHUD();
     };
 
     window.addEventListener('focusin', updateActiveTarget, { capture: true });
-    window.addEventListener('blur', () => engine.hud.hide());
-    const refreshOverlay = () => engine.adapter.refreshOverlayGeometry();
+    window.addEventListener('blur', () => {
+      engine?.invalidateQueuedKeys();
+      engine?.cancelDeletionOnWindowBlur();
+      engine?.hud.hide();
+    });
+    const refreshOverlay = () => engine?.adapter.refreshOverlayGeometry();
     window.addEventListener('resize', refreshOverlay);
     window.addEventListener('scroll', refreshOverlay, { capture: true, passive: true });
     window.visualViewport?.addEventListener('resize', refreshOverlay);
     window.visualViewport?.addEventListener('scroll', refreshOverlay);
     window.addEventListener('focusout', (e) => {
       if (!e.isTrusted) return;
+      engine?.invalidateQueuedKeys();
       setTimeout(() => updateActiveTarget(), 0);
     }, { capture: true });
     document.addEventListener('selectionchange', (e) => {
@@ -384,13 +478,5 @@ export default defineContentScript({
       setTimeout(() => updateActiveTarget(), 0);
     }, { capture: true });
 
-    // Expose engine / adapter to window.__SKK_ENGINE__ for test inspection
-    (window as any).__SKK_ENGINE__ = engine;
-    (window as any).__SKK_POC_ENGINE__ = engine;
-
-    await engine.isInitializedPromise;
-    document.documentElement.setAttribute('data-skk-initialized', 'true');
-
-    console.log('[SKK Extension] Content script loaded successfully.');
   },
 });

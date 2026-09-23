@@ -1,5 +1,5 @@
 import * as wanakana from "wanakana";
-import type { CandidateListOptions, IEditor, IPosition, IRange } from "../core/skk/editor/IEditor";
+import type { CandidateListOptions, DeletionConfirmation, IEditor, IPosition, IRange } from "../core/skk/editor/IEditor";
 import { DeleteLeftResult } from "../core/skk/editor/IEditor";
 import { EditorFactory } from "../core/skk/editor/EditorFactory";
 import type { IJisyoProvider } from "../core/skk/jisyo/IJisyoProvider";
@@ -60,6 +60,7 @@ export class BrowserEditorAdapter implements IEditor {
     private candidateListOptions?: CandidateListOptions;
     private lastErrorMessage: string = "";
     private lastStatus: string = "";
+    private deletionConfirmation?: DeletionConfirmation;
     private fixatedCandidateText: string = "";
     private registrationEditorOpened: boolean = false;
     private registrationYomi?: string;
@@ -127,6 +128,9 @@ export class BrowserEditorAdapter implements IEditor {
 
     public async cancelComposition(): Promise<void> {
         this.currentCompositionSession++;
+        if (this.currentInputMode instanceof RegistrationMode) {
+            await this.currentInputMode.cancelDeletionOnFocusLoss();
+        }
         this.inMidashigo = false;
         this.midashigoText = "";
         this.remainingRomaji = "";
@@ -137,6 +141,7 @@ export class BrowserEditorAdapter implements IEditor {
         this.candidateListOptions = undefined;
         this.candidateList = [];
         this.candidateAlphabetList = [];
+        this.deletionConfirmation = undefined;
         if (this.lastStatus.startsWith("[辞書登録:")) {
             this.lastStatus = "";
         }
@@ -554,6 +559,20 @@ export class BrowserEditorAdapter implements IEditor {
         return true;
     }
 
+    public showDeletionConfirmation(confirmation: DeletionConfirmation): void {
+        this.deletionConfirmation = { ...confirmation };
+        this.lastStatus = "";
+        this.lastErrorMessage = "";
+        this.updateHUD();
+    }
+
+    public clearDeletionConfirmation(): void {
+        this.deletionConfirmation = undefined;
+        this.lastStatus = "";
+        this.lastErrorMessage = "";
+        this.updateHUD();
+    }
+
     public showRemainingRomaji(remainingRomaji: string, isOkuri: boolean, offset: number): void {
         this.remainingRomaji = remainingRomaji;
         this.isOkuri = isOkuri;
@@ -703,6 +722,7 @@ export class BrowserEditorAdapter implements IEditor {
         if (this.currentInputMode instanceof RegistrationMode) {
             const regMode = this.currentInputMode;
             const mb = regMode.getMiniBufferEditor();
+            const deletionConfirmation = mb.getDeletionConfirmation();
             const prompt = regMode.getPromptHeader();
             let mbPreedit = "";
 
@@ -735,6 +755,11 @@ export class BrowserEditorAdapter implements IEditor {
                 statusText = this.lastStatus || "";
             }
 
+            if (deletionConfirmation) {
+                candidateText = undefined;
+                statusText = "";
+            }
+
             if (modal && modal.isOpen()) {
                 let internalBadge = "かな";
                 const internalMode = regMode.getInternalMode();
@@ -749,6 +774,7 @@ export class BrowserEditorAdapter implements IEditor {
                     statusText: statusText || undefined,
                     candidateList: candidateListState,
                     candidateOptions,
+                    deletionConfirmation,
                 });
                 this.hud.hide({ x, y, mode: modeBadge,
                     preedit: prompt + mb.getCommittedText() + mbPreedit,
@@ -786,6 +812,10 @@ export class BrowserEditorAdapter implements IEditor {
                 preeditStr = "";
                 statusText = "";
             }
+            if (this.deletionConfirmation) {
+                candidateText = undefined;
+                statusText = "";
+            }
         }
 
         this.hud.update({
@@ -797,7 +827,8 @@ export class BrowserEditorAdapter implements IEditor {
             candidateOptions,
             preedit: preeditStr,
             candidate: candidateText,
-            status: statusText || undefined
+            status: statusText || undefined,
+            deletionConfirmation: this.deletionConfirmation,
         });
 
         if (modal && modal.isOpen()) {

@@ -1206,6 +1206,35 @@ describe("BrowserEditorAdapter", () => {
     });
 
     describe("Async Lookup Generation Tracking & Stale Lookup Discarding", () => {
+        it("辞書登録中の削除待機でフォーカスを失っても、古い確認画面を復元しない", async () => {
+            adapter.setTargetElement(mockElement as unknown as Element);
+            const registration = new RegistrationMode("そと", "", adapter, HiraganaMode.getInstance());
+            adapter.setInputMode(registration);
+            const mini = registration.getMiniBufferEditor();
+            await mini.insertOrReplaceSelection("前");
+            const kana = registration.getInternalMode();
+            await kana.upperAlphabetInput("T");
+            for (const key of "esuto") await kana.lowerAlphabetInput(key);
+            await kana.spaceInput();
+            await kana.upperAlphabetInput("X");
+            expect(mini.getDeletionConfirmation()?.candidate).toBe("テスト");
+
+            let finishDelete!: (value: boolean) => void;
+            vi.spyOn(jisyoProvider, "deleteCandidate").mockImplementationOnce(
+                () => new Promise<boolean>(resolve => { finishDelete = resolve; })
+            );
+            const pending = kana.upperAlphabetInput("Y");
+            expect(mini.getDeletionConfirmation()?.warning).toBe("削除中…");
+            await adapter.cancelComposition();
+            finishDelete(true);
+            await pending;
+
+            expect(mini.getDeletionConfirmation()).toBeUndefined();
+            expect(kana.getContextualName()).toBe("hiragana:kakutei");
+            expect(mini.getCommittedText()).toBe("前");
+            expect(mockElement.value).toBe("");
+        });
+
         it("advances session counter on cancelComposition, setTargetElement, and clearMidashigo", async () => {
             const initialSession = adapter.getCurrentCompositionSession();
 

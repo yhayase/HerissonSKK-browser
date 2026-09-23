@@ -1,5 +1,5 @@
 import * as wanakana from "wanakana";
-import { DeleteLeftResult, type IEditor, type IPosition, type IRange } from "../../../src/core/skk/editor/IEditor";
+import { DeleteLeftResult, type DeletionConfirmation, type IEditor, type IPosition, type IRange } from "../../../src/core/skk/editor/IEditor";
 import type { IJisyoProvider } from "../../../src/core/skk/jisyo/IJisyoProvider";
 import { Candidate } from "../../../src/core/skk/jisyo/candidate";
 import { Entry } from "../../../src/core/skk/jisyo/entry";
@@ -104,6 +104,7 @@ export class MockEditor implements IEditor {
     private fixatedCandidate: string = "";
     private wasRegistrationEditorOpened_: boolean = false;
     private lastErrorMessage: string = "";
+    private deletionConfirmation?: DeletionConfirmation;
     private currentText: string = "";
     private cursorPosition: IPosition = { line: 0, character: 0 };
     private midashigoStartPosition: IPosition | null = null;
@@ -133,6 +134,8 @@ export class MockEditor implements IEditor {
     getCurrentCandidate(): Candidate | undefined {
         return this.currentCandidate;
     }
+
+    getDeletionConfirmation(): DeletionConfirmation | undefined { return this.deletionConfirmation; }
 
     getCandidateList(): { candidates: Candidate[]; selectionKeys: string[] } {
         return this.candidateList;
@@ -411,6 +414,15 @@ export class MockEditor implements IEditor {
         this.currentCandidate = undefined;
         this.appendedSuffix = "";
         return true;
+    }
+
+    showDeletionConfirmation(confirmation: DeletionConfirmation): void {
+        this.deletionConfirmation = { ...confirmation };
+    }
+
+    clearDeletionConfirmation(): void {
+        this.deletionConfirmation = undefined;
+        this.lastErrorMessage = "";
     }
 
     showRemainingRomaji(remainingRomaji: string, isOkuri: boolean, offset: number): void {

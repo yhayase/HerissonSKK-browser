@@ -13,6 +13,8 @@ HerissonSKK は Yasuhiro Hayase が制作・公開するプロジェクトです
 ## 利用案内
 
 - [基本操作・対応環境](docs/store-listing.md)
+- [埋め込み文書での入力と制約](docs/embedded-documents.md)
+- [候補削除（X）の操作と対象](docs/candidate-deletion.md)
 - [システム辞書の設定](docs/system-dictionaries.md)
 - [プライバシーポリシー](docs/privacy-policy.md)
 - [ロードマップ](docs/roadmap.md)
@@ -36,3 +38,7 @@ HerissonSKK は Yasuhiro Hayase が制作・公開するプロジェクトです
 | `.local/` | ローカルバックアップと不採用の画像案（Git 管理外） |
 
 試験ページは `test/browser/test.html` を開発・テスト用サーバーで配信します。配布用の `public/` には置きません。テストの一時スクリーンショットは `.output/`、採用した掲載画像は `assets/store/` に保存します。`docs/benchmarks/` と `docs/audit/` は判断根拠として保存した記録です。
+
+## Firefox 審査用のソース提出
+
+[再現ビルド手順](docs/source-build.md)に環境とコマンドを記載しています。`python3 scripts/release/package-source.py` で、手順を README として含む提出用ソース ZIP を作成できます。

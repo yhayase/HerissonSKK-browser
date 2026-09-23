@@ -1,7 +1,8 @@
 import { CandidateListView, type CandidateListState } from "./CandidateListView";
 import { getOverlayViewport, measureCandidateRows } from "./FloatingHUD";
 import { computeOverlayLayout, type OverlayLayout } from "./OverlayLayout";
-import type { CandidateListOptions } from "../core/skk/editor/IEditor";
+import type { CandidateListOptions, DeletionConfirmation } from "../core/skk/editor/IEditor";
+import { DeletionConfirmationView } from './DeletionConfirmationView';
 import type { IEditorTarget, IEditorSelectionSnapshot } from "../adapter/targets/IEditorTarget";
 import { OVERLAY_FONT_FAMILY, OVERLAY_THEME_CSS } from "./overlayTheme";
 
@@ -33,6 +34,7 @@ export class RegistrationModal {
     private candidateEl: HTMLElement | null = null;
     private statusTextEl: HTMLElement | null = null;
     private candidateListView: CandidateListView | null = null;
+    private deletionView: DeletionConfirmationView | null = null;
     private previousLayout?: OverlayLayout;
 
     constructor(private shadowRoot: ShadowRoot) {}
@@ -76,6 +78,7 @@ export class RegistrationModal {
 
             this.dialogEl = document.createElement("div");
             this.dialogEl.className = "skk-registration-modal-dialog";
+            this.dialogEl.lang = "ja";
             this.dialogEl.style.background = "var(--skk-overlay-surface)";
             this.dialogEl.style.color = "var(--skk-overlay-text)";
             this.dialogEl.style.fontFamily = OVERLAY_FONT_FAMILY;
@@ -90,6 +93,7 @@ export class RegistrationModal {
             this.dialogEl.style.minWidth = "0";
             this.dialogEl.style.boxSizing = "border-box";
             this.dialogEl.style.overflow = "auto";
+            this.dialogEl.style.maxHeight = "calc(100vh - 16px)";
 
             const headerEl = document.createElement("div");
             headerEl.style.display = "flex";
@@ -179,6 +183,8 @@ export class RegistrationModal {
             this.dialogEl.appendChild(headerEl);
             this.dialogEl.appendChild(this.inputContainerEl);
             this.dialogEl.appendChild(this.statusLineEl);
+            this.deletionView = new DeletionConfirmationView();
+            this.dialogEl.appendChild(this.deletionView.element);
             this.overlayEl.appendChild(this.dialogEl);
 
             if (this.shadowRoot && typeof this.shadowRoot.appendChild === "function") {
@@ -331,6 +337,7 @@ export class RegistrationModal {
         statusText?: string;
         candidateList?: CandidateListState;
         candidateOptions?: CandidateListOptions;
+        deletionConfirmation?: DeletionConfirmation;
     }): void {
         if (this.modeBadgeEl && status.mode !== undefined) {
             this.modeBadgeEl.textContent = status.mode;
@@ -347,6 +354,7 @@ export class RegistrationModal {
             this.statusTextEl.textContent = status.statusText ?? "";
             this.statusTextEl.style.display = status.statusText ? "" : "none";
         }
+        this.deletionView?.update(status.deletionConfirmation);
         if (!this.dialogEl || typeof window === 'undefined') return;
         const viewport = getOverlayViewport();
         const width = Math.max(0, Math.min(520, viewport.width - Math.min(16, viewport.width / 2)));
@@ -441,6 +449,7 @@ export class RegistrationModal {
             this.overlayEl = null;
         }
         this.candidateListView = null;
+        this.deletionView = null;
         this.previousLayout = undefined;
         this.dialogEl = null;
         this.badgeEl = null;

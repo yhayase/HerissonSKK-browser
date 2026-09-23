@@ -1,4 +1,4 @@
-import type { CandidateListOptions, IEditor, IRange } from "../../editor/IEditor";
+import type { CandidateListOptions, DeletionConfirmation, IEditor, IRange } from "../../editor/IEditor";
 import { DeleteLeftResult } from "../../editor/IEditor";
 import { AbstractInputMode } from "../AbstractInputMode";
 import type { IInputMode } from "../IInputMode";
@@ -6,6 +6,7 @@ import { AbstractKanaMode } from "../AbstractKanaMode";
 import { HiraganaMode } from "../HiraganaMode";
 import { KakuteiMode } from "./KakuteiMode";
 import { InlineHenkanMode } from "./InlineHenkanMode";
+import { CandidateDeletionMode } from "./CandidateDeletionMode";
 import { MenuHenkanMode } from "./MenuHenkanMode";
 import { Candidate } from "../../jisyo/candidate";
 import type { IJisyoProvider } from "../../jisyo/IJisyoProvider";
@@ -45,6 +46,7 @@ export class RegistrationMiniBufferEditor implements IEditor {
     private candidateList: Candidate[] = [];
     private candidateAlphabetList: string[] = [];
     private candidateListOptions?: CandidateListOptions;
+    private deletionConfirmation?: DeletionConfirmation;
     private target?: ITextTarget;
 
     constructor(registrationMode: RegistrationMode, outerEditor: IEditor) {
@@ -86,6 +88,9 @@ export class RegistrationMiniBufferEditor implements IEditor {
     public getCurrentCandidate(): Candidate | undefined {
         return this.currentCandidate;
     }
+
+    public getDeletionConfirmation(): DeletionConfirmation | undefined { return this.deletionConfirmation; }
+    public isDeletionContextActive(): boolean { return this.outerEditor.getCurrentInputMode() === this.registrationMode; }
 
     public getCurrentOkuri(): string {
         return this.currentOkuri;
@@ -231,6 +236,7 @@ export class RegistrationMiniBufferEditor implements IEditor {
     }
 
     public async clearMidashigo(): Promise<boolean> {
+        this.deletionConfirmation = undefined;
         this.inMidashigo = false;
         this.midashigoText = "";
         this.remainingRomaji = "";
@@ -332,6 +338,16 @@ export class RegistrationMiniBufferEditor implements IEditor {
         this.currentSuffix = "";
         await this.registrationMode.notifyChanged();
         return true;
+    }
+
+    public showDeletionConfirmation(confirmation: DeletionConfirmation): void {
+        this.deletionConfirmation = { ...confirmation };
+        void this.registrationMode.notifyChanged();
+    }
+
+    public clearDeletionConfirmation(): void {
+        this.deletionConfirmation = undefined;
+        void this.registrationMode.notifyChanged();
     }
 
     public showRemainingRomaji(remainingRomaji: string, isOkuri: boolean, offset: number): void {
@@ -525,6 +541,10 @@ export class RegistrationMode extends AbstractInputMode implements IInputMode {
     }
 
     public async abortRegistration(): Promise<void> {
+        this.miniBufferEditor.clearDeletionConfirmation();
+        if (this.internalMode instanceof AbstractKanaMode) {
+            this.internalMode.setHenkanMode(KakuteiMode.create(this.internalMode, this.miniBufferEditor));
+        }
         if (this.parentRegistration) {
             this.outerEditor.setInputMode(this.parentRegistration);
             await this.outerEditor.notifyModeInternalStateChanged();
@@ -557,6 +577,16 @@ export class RegistrationMode extends AbstractInputMode implements IInputMode {
         }
 
         await this.outerEditor.notifyModeInternalStateChanged();
+    }
+
+    /** ウィンドウから離れた確認操作を破棄し、登録済みの入力文字は保ちます。 */
+    public async cancelDeletionOnFocusLoss(): Promise<void> {
+        if (!(this.internalMode instanceof AbstractKanaMode)) return;
+        if (!(this.internalMode.getHenkanMode() instanceof CandidateDeletionMode)) return;
+        this.internalMode.setHenkanMode(KakuteiMode.create(this.internalMode, this.miniBufferEditor));
+        this.miniBufferEditor.clearDeletionConfirmation();
+        await this.miniBufferEditor.clearMidashigo();
+        await this.miniBufferEditor.clearCandidate();
     }
 
     public async ctrlJInput(): Promise<void> {

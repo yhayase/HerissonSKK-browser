@@ -6,6 +6,9 @@ export default defineContentScript({
     '*://*.github.dev/*',
     '*://*.github.com/*',
   ],
+  allFrames: true,
+  matchAboutBlank: true,
+  matchOriginAsFallback: true,
   runAt: 'document_start',
   world: 'MAIN',
   main() {

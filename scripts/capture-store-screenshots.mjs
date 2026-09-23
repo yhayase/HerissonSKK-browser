@@ -27,7 +27,7 @@ try {
     } : {
       browser: 'firefox', executablePath: process.env.FIREFOX_PATH ?? '/snap/firefox/current/usr/lib/firefox/firefox',
       headless: true, args: ['--remote-allow-system-access'],
-      extraPrefsFirefox: { 'extensions.webextensions.uuids': JSON.stringify({ 'skk-browser-extension@yhayase': uuid }) },
+      extraPrefsFirefox: { 'extensions.webextensions.uuids': JSON.stringify({ 'herissonskk@yhayase': uuid }) },
     });
     let extensionRoot;
     if (flavor === 'firefox') {

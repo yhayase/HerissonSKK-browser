@@ -263,6 +263,32 @@ describe("CompositeJisyoProvider", () => {
         });
     });
 
+    describe("候補削除の永続化結果", () => {
+        it("永続化を待つ間と失敗時はキャッシュを保持し、再試行できる", async () => {
+            let rejectDeletion!: (error: Error) => void;
+            const deleting = vi.spyOn(userStorage, "deleteCandidate").mockImplementationOnce(
+                () => new Promise<boolean>((_resolve, reject) => { rejectDeletion = reject; }),
+            );
+            const operation = provider.deleteCandidate("へんかん", new Candidate("変換-user"));
+            await vi.waitFor(() => expect(deleting).toHaveBeenCalledOnce());
+            expect(provider.getUserDictionary().get("へんかん")?.[0]?.word).toBe("変換-user");
+            rejectDeletion(new Error("保存失敗"));
+            await expect(operation).rejects.toThrow("保存失敗");
+            expect(provider.getUserDictionary().get("へんかん")?.[0]?.word).toBe("変換-user");
+            expect(userStorage.entries.get("へんかん")?.[0]?.word).toBe("変換-user");
+
+            await expect(provider.deleteCandidate("へんかん", new Candidate("変換-user"))).resolves.toBe(true);
+            expect(provider.getUserDictionary().has("へんかん")).toBe(false);
+        });
+
+        it("保存先に対象がなければ成功扱いにせず、古いキャッシュを取り除く", async () => {
+            userStorage.entries.delete("へんかん");
+            expect(provider.getUserDictionary().has("へんかん")).toBe(true);
+            await expect(provider.deleteCandidate("へんかん", new Candidate("変換-user"))).resolves.toBe(false);
+            expect(provider.getUserDictionary().has("へんかん")).toBe(false);
+        });
+    });
+
     describe("Multi-tab Synchronization (BroadcastChannelSync)", () => {
         let channelName: string;
         let syncA: BroadcastChannelSync;

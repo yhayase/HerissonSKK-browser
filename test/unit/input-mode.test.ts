@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { MockEditor, MockJisyoProvider } from "./mocks/MockEditor";
 import { EditorFactory } from "../../src/core/skk/editor/EditorFactory";
 import { HiraganaMode } from "../../src/core/skk/input-mode/HiraganaMode";
@@ -124,6 +124,23 @@ describe("SKK Input Modes", () => {
     });
 
     describe("3. Okuri-ari conversion", () => {
+        it.each([false, true])("TasSi の促音は語幹に含め、送り仮名は「し」にします（カタカナ=%s）", async (katakana) => {
+            const mode = katakana ? KatakanaMode.getInstance() : hiraganaMode;
+            mockEditor.setInputMode(mode);
+            await mockEditor.getJisyoProvider().registerCandidate("たっs", new Candidate("達"));
+            for (const char of "TasS") {
+                if (char === char.toUpperCase()) await mode.upperAlphabetInput(char);
+                else await mode.lowerAlphabetInput(char);
+            }
+            expect(mockEditor.getMidashigo()).toBe(katakana ? "タッ" : "たっ");
+            expect(mockEditor.getCurrentCandidate()).toBeUndefined();
+            await mode.lowerAlphabetInput("i");
+            expect(mockEditor.getCurrentCandidate()?.word).toBe("達");
+            expect(mockEditor.getAppendedSuffix()).toBe(katakana ? "シ" : "し");
+            await mode.ctrlJInput();
+            expect(mockEditor.getCurrentText()).toBe(katakana ? "達シ" : "達し");
+        });
+
         it.each([
             ["TsukaTt", "e", "つかt", "使", "って"],
             ["IKk", "u", "いk", "行", "っく"],
@@ -554,16 +571,20 @@ describe("SKK Input Modes", () => {
             // Press 'X' to enter CandidateDeletionMode
             await hiraganaMode.upperAlphabetInput("X");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
-            expect(mockEditor.getAppendedSuffix()).toContain("Really delete");
+            expect(mockEditor.getDeletionConfirmation()).toMatchObject({ reading: "たんご", candidate: "単語" });
 
             // Press 'N' cancels deletion and returns to InlineHenkanMode
             await hiraganaMode.upperAlphabetInput("N");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:inlineHenkan");
+            expect(mockEditor.getDeletionConfirmation()).toBeUndefined();
+            expect(mockEditor.getCurrentText()).toBe("▼単語");
 
             // Press 'X' again, then 'Y' confirms deletion
             await hiraganaMode.upperAlphabetInput("X");
             await hiraganaMode.upperAlphabetInput("Y");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:kakutei");
+            expect(mockEditor.getDeletionConfirmation()).toBeUndefined();
+            expect(mockEditor.getCurrentText()).toBe("");
 
             // Verify deleted from jisyo
             const entry = await provider.lookupCandidates("たんご");
@@ -588,56 +609,79 @@ describe("SKK Input Modes", () => {
 
             // Lowercase 'y' and 'n'
             await hiraganaMode.lowerAlphabetInput("y");
-            expect(mockEditor.getLastErrorMessage()).toBe("Type Y or N in upper case");
+            expect(mockEditor.getDeletionConfirmation()?.warning).toBe("大文字の Y または N を押してください");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
 
             await hiraganaMode.lowerAlphabetInput("n");
-            expect(mockEditor.getLastErrorMessage()).toBe("Type Y or N in upper case");
+            expect(mockEditor.getDeletionConfirmation()?.warning).toBe("大文字の Y または N を押してください");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
 
             // Other lowercase alphabet
             await hiraganaMode.lowerAlphabetInput("z");
-            expect(mockEditor.getLastErrorMessage()).toBe("Type Y or N");
+            expect(mockEditor.getDeletionConfirmation()?.warning).toBe("Y または N を押してください");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
 
             // Other uppercase alphabet (not Y/N)
             await hiraganaMode.upperAlphabetInput("Z");
-            expect(mockEditor.getLastErrorMessage()).toBe("Type Y or N");
+            expect(mockEditor.getDeletionConfirmation()?.warning).toBe("Y または N を押してください");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
 
             // Number
             await hiraganaMode.numberInput("1");
-            expect(mockEditor.getLastErrorMessage()).toBe("Type Y or N");
+            expect(mockEditor.getDeletionConfirmation()?.warning).toBe("Y または N を押してください");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
 
             // Symbol
             await hiraganaMode.symbolInput("?");
-            expect(mockEditor.getLastErrorMessage()).toBe("Type Y or N");
+            expect(mockEditor.getDeletionConfirmation()?.warning).toBe("Y または N を押してください");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
 
             // Space
             await hiraganaMode.spaceInput();
-            expect(mockEditor.getLastErrorMessage()).toBe("Type Y or N");
+            expect(mockEditor.getDeletionConfirmation()?.warning).toBe("Y または N を押してください");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
 
             // Enter
             await hiraganaMode.enterInput();
-            expect(mockEditor.getLastErrorMessage()).toBe("Type Y or N");
+            expect(mockEditor.getDeletionConfirmation()?.warning).toBe("Y または N を押してください");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
 
             // Backspace
             await hiraganaMode.backspaceInput();
-            expect(mockEditor.getLastErrorMessage()).toBe("Type Y or N");
+            expect(mockEditor.getDeletionConfirmation()?.warning).toBe("Y または N を押してください");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
 
             // Ctrl+j
             await hiraganaMode.ctrlJInput();
-            expect(mockEditor.getLastErrorMessage()).toBe("Type Y or N");
+            expect(mockEditor.getDeletionConfirmation()?.warning).toBe("Y または N を押してください");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
 
             // Cancel with 'N'
             await hiraganaMode.upperAlphabetInput("N");
             expect(hiraganaMode.getContextualName()).toBe("hiragana:inlineHenkan");
+            expect(mockEditor.getDeletionConfirmation()).toBeUndefined();
+        });
+
+        it("個人辞書に対象がない場合や削除に失敗した場合は確認を維持する", async () => {
+            const provider = mockEditor.getJisyoProvider();
+            await provider.registerCandidate("たんご", new Candidate("単語"));
+            await hiraganaMode.upperAlphabetInput("T");
+            for (const key of "ango") await hiraganaMode.lowerAlphabetInput(key);
+            await hiraganaMode.spaceInput();
+            await hiraganaMode.upperAlphabetInput("X");
+            vi.spyOn(provider, "deleteCandidate").mockResolvedValueOnce(false).mockRejectedValueOnce(new Error("保存失敗"));
+
+            await hiraganaMode.upperAlphabetInput("Y");
+            expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
+            expect(mockEditor.getDeletionConfirmation()?.error).toContain("削除対象がありません");
+            expect(mockEditor.getCurrentText()).toBe("▼単語");
+
+            await hiraganaMode.upperAlphabetInput("Y");
+            expect(mockEditor.getDeletionConfirmation()?.error).toContain("削除に失敗しました");
+            expect(hiraganaMode.getContextualName()).toBe("hiragana:candidateDeletion");
+            await hiraganaMode.ctrlGInput();
+            expect(mockEditor.getDeletionConfirmation()).toBeUndefined();
+            expect(mockEditor.getCurrentText()).toBe("▼単語");
         });
     });
 

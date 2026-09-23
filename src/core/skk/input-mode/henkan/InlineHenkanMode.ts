@@ -10,6 +10,7 @@ import type { AbstractMidashigoMode } from "./AbstractMidashigoMode";
 import { CandidateDeletionMode } from "./CandidateDeletionMode";
 import { MidashigoMode } from "./MidashigoMode";
 import * as wanakana from "wanakana";
+import { copyCandidate } from "../../jisyo/candidate";
 
 export class InlineHenkanMode extends AbstractHenkanMode {
     private readonly prevMode: AbstractMidashigoMode;
@@ -116,7 +117,7 @@ export class InlineHenkanMode extends AbstractHenkanMode {
                 throw new Error("Unconsistent state: Candidate is not found in the global jisyo.");
             }
 
-            const deletionMode = await CandidateDeletionMode.create(context, this.editor, this, rawMidashigo, cand);
+            const deletionMode = CandidateDeletionMode.create(this.editor, this, rawMidashigo, copyCandidate(cand), this.okuri, this.origMidashigo);
             context.setHenkanMode(deletionMode);
             return;
         }

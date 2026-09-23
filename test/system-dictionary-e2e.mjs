@@ -69,7 +69,7 @@ const launch = async (offline = false) => {
   } : {
     browser: 'firefox', executablePath: process.env.FIREFOX_PATH ?? '/snap/firefox/current/usr/lib/firefox/firefox',
     headless: true, userDataDir: profile, args: ['--remote-allow-system-access'],
-    extraPrefsFirefox: { ...(offline ? { 'network.proxy.type': 1, 'network.proxy.http': '127.0.0.1', 'network.proxy.http_port': 9, 'network.proxy.ssl': '127.0.0.1', 'network.proxy.ssl_port': 9, 'network.proxy.no_proxies_on': 'localhost,127.0.0.1' } : {}), 'extensions.webextensions.uuids': JSON.stringify({ 'skk-browser-extension@yhayase': uuid }) },
+    extraPrefsFirefox: { ...(offline ? { 'network.proxy.type': 1, 'network.proxy.http': '127.0.0.1', 'network.proxy.http_port': 9, 'network.proxy.ssl': '127.0.0.1', 'network.proxy.ssl_port': 9, 'network.proxy.no_proxies_on': 'localhost,127.0.0.1' } : {}), 'extensions.webextensions.uuids': JSON.stringify({ 'herissonskk@yhayase': uuid }) },
   });
   log(`[${flavor}] browser ${await browser.version()} profile ${profile}`);
   if (flavor === 'firefox') {

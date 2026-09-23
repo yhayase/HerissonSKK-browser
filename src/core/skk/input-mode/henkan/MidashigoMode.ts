@@ -151,9 +151,15 @@ export class MidashigoMode extends AbstractMidashigoMode {
             this.romajiInput.reset();
         }
 
-        const kana = this.romajiInput.processInput(key.toLowerCase());
+        const previousRomaji = this.romajiInput.getRemainingRomaji();
+        let kana = this.romajiInput.processInput(key.toLowerCase());
         const remainingRomaji = this.romajiInput.getRemainingRomaji();
-        await context.insertStringAndShowRemaining(kanaForRemainedRomaji || "", remainingRomaji, true);
+        // TasSi の sS で生成される促音は、Shift より前の語幹に属します。
+        // TsukaTte のように送り仮名の入力開始後に生成される促音は別経路で保持します。
+        const stemSokuon = previousRomaji === key.toLowerCase()
+            && remainingRomaji === key.toLowerCase() && (kana === "っ" || kana === "ッ") ? kana : "";
+        if (stemSokuon) kana = "";
+        await context.insertStringAndShowRemaining((kanaForRemainedRomaji || "") + stemSokuon, remainingRomaji, true);
         if (kana.length === 0 || !this.romajiInput.isEmpty()) {
             this.pendingOkuri = kana;
             this.editor.showRemainingRomaji(kana + remainingRomaji, true, 0);

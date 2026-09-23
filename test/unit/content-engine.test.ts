@@ -43,6 +43,8 @@ import { HiraganaMode } from "../../src/core/skk/input-mode/HiraganaMode";
 import { KatakanaMode } from "../../src/core/skk/input-mode/KatakanaMode";
 import { ZeneiMode } from "../../src/core/skk/input-mode/ZeneiMode";
 import { Candidate } from "../../src/core/skk/jisyo/candidate";
+import { Entry } from "../../src/core/skk/jisyo/entry";
+import { RegistrationModal } from "../../src/hud/RegistrationModal";
 
 import type { SkkContentEngine as TSkkContentEngine } from "../../entrypoints/content";
 
@@ -52,6 +54,94 @@ describe("SkkContentEngine verified findings", () => {
   beforeEach(() => {
     (globalThis as any).document.activeElement = null;
     engine = new SkkContentEngine();
+  });
+
+  it("削除待機中の二度目の Y を処理後の入力状態へ転送しない", async () => {
+    const target = {
+      tagName: "INPUT", type: "text", readOnly: false, disabled: false,
+      value: "", selectionStart: 0, selectionEnd: 0,
+      setSelectionRange: vi.fn(), dispatchEvent: vi.fn(),
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 200, bottom: 30, width: 200, height: 30 }),
+    } as any;
+    (globalThis as any).document.activeElement = target;
+    engine.adapter.setTargetElement(target);
+    engine.isInitializedPromise = Promise.resolve();
+    const kana = new HiraganaMode(engine.adapter);
+    engine.adapter.setInputMode(kana);
+    const provider = engine.adapter.getJisyoProvider();
+    vi.spyOn(provider, "lookupCandidates").mockResolvedValue(new Entry("てすと", [new Candidate("テスト")], ""));
+    let finishDelete!: (deleted: boolean) => void;
+    let deleting!: () => void;
+    const started = new Promise<void>(resolve => { deleting = resolve; });
+    const deleteCandidate = vi.spyOn(provider, "deleteCandidate").mockImplementation(
+      () => new Promise<boolean>(resolve => { finishDelete = resolve; deleting(); })
+    );
+    await kana.upperAlphabetInput("T");
+    for (const char of "esuto") await kana.lowerAlphabetInput(char);
+    await kana.spaceInput();
+
+    const key = (value: string) => ({
+      isTrusted: true, isComposing: false, keyCode: 0, key: value, code: `Key${value}`,
+      ctrlKey: false, metaKey: false, altKey: false, shiftKey: true,
+      preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+    } as any);
+    await engine.handleKeyDown(key("X"));
+    const first = engine.handleKeyDown(key("Y"));
+    await started;
+    const second = key("Y");
+    await engine.handleKeyDown(second);
+    expect(second.preventDefault).toHaveBeenCalledOnce();
+    finishDelete(true);
+    await first;
+
+    expect(deleteCandidate).toHaveBeenCalledOnce();
+    expect(kana.getContextualName()).toBe("hiragana:kakutei");
+    expect(engine.adapter.getMidashigo()).toBe("");
+    expect(engine.adapter.getCurrentCandidate()).toBeUndefined();
+    expect(target.value).toBe("");
+  });
+
+  it("ウィンドウ離脱時は削除確認だけを破棄し、通常の変換は保つ", async () => {
+    const target = { tagName: "INPUT", type: "text", readOnly: false, disabled: false,
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 200, bottom: 30 }) } as any;
+    (globalThis as any).document.activeElement = target;
+    engine.adapter.setTargetElement(target);
+    const kana = new HiraganaMode(engine.adapter);
+    engine.adapter.setInputMode(kana);
+    await kana.upperAlphabetInput("T");
+    await kana.lowerAlphabetInput("e");
+    const cancel = vi.spyOn(engine.adapter, "cancelComposition");
+    engine.cancelDeletionOnWindowBlur();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(engine.adapter.getMidashigo()).toBe("て");
+
+    vi.spyOn(engine.adapter.getJisyoProvider(), "lookupCandidates")
+      .mockResolvedValue(new Entry("てすと", [new Candidate("テスト")], ""));
+    for (const char of "suto") await kana.lowerAlphabetInput(char);
+    await kana.spaceInput();
+    await kana.upperAlphabetInput("X");
+    expect(kana.getContextualName()).toBe("hiragana:candidateDeletion");
+    engine.cancelDeletionOnWindowBlur();
+    await cancel.mock.results[0]?.value;
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(kana.getContextualName()).toBe("hiragana:kakutei");
+    expect(engine.adapter.getCurrentCandidate()).toBeUndefined();
+  });
+
+  it("登録画面外へフォーカスが移ったときは Tab を奪わない", async () => {
+    const outside = { tagName: "INPUT", type: "text", readOnly: false, disabled: false } as any;
+    (globalThis as any).document.activeElement = outside;
+    const activeInput = { tagName: "INPUT", type: "text" } as any;
+    const modal = { isOpen: () => true, getActiveInputElement: () => activeInput } as any;
+    const activeModal = vi.spyOn(RegistrationModal, "getActiveModal").mockReturnValue(modal);
+    const event = { key: "Tab", isTrusted: true, isComposing: false, keyCode: 0,
+      preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn() } as any;
+    try {
+      await engine.handleKeyDown(event);
+      expect(event.preventDefault).not.toHaveBeenCalled();
+    } finally {
+      activeModal.mockRestore();
+    }
   });
 
   describe("isTargetEditable", () => {
@@ -291,6 +381,85 @@ describe("SkkContentEngine verified findings", () => {
       expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(HiraganaMode);
     });
 
+    it("辞書の起動待ちでも最初の Ctrl+J に続く文字をかな入力として受け付ける", async () => {
+      let completeDictionary!: () => void;
+      engine.isInitializedPromise = new Promise<void>((resolve) => { completeDictionary = resolve; });
+      const key = (value: string, ctrlKey = false) => ({
+        isTrusted: true,
+        isComposing: false,
+        keyCode: value.toLowerCase().charCodeAt(0),
+        key: value,
+        code: `Key${value.toUpperCase()}`,
+        ctrlKey,
+        altKey: false,
+        shiftKey: false,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+        stopImmediatePropagation: vi.fn(),
+      } as any);
+
+      const toggle = key("j", true);
+      const consonant = key("k");
+      const vowel = key("a");
+      await engine.handleKeyDown(toggle);
+      const first = engine.handleKeyDown(consonant);
+      const second = engine.handleKeyDown(vowel);
+
+      expect(toggle.preventDefault).toHaveBeenCalled();
+      expect(consonant.preventDefault).toHaveBeenCalled();
+      expect(vowel.preventDefault).toHaveBeenCalled();
+      expect(mockInput.value).toBe("");
+
+      completeDictionary();
+      await Promise.all([first, second]);
+      expect(mockInput.value).toBe("か");
+    });
+
+    it("先行する入力処理があるとき Ctrl+J と後続文字を順番に処理する", async () => {
+      let completeDictionary!: () => void;
+      engine.isInitializedPromise = new Promise<void>((resolve) => { completeDictionary = resolve; });
+      const pending = engine.enqueueKeyAction(async () => {
+        engine.adapter.setInputMode(AsciiMode.getInstance(engine.adapter));
+      });
+      const key = (value: string, ctrlKey = false) => ({
+        isTrusted: true, isComposing: false, keyCode: value.toLowerCase().charCodeAt(0),
+        key: value, code: `Key${value.toUpperCase()}`, ctrlKey, altKey: false, shiftKey: false,
+        preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+      } as any);
+      const toggle = key("j", true);
+      const consonant = key("k");
+      const vowel = key("a");
+      const tasks = [engine.handleKeyDown(toggle), engine.handleKeyDown(consonant), engine.handleKeyDown(vowel)];
+
+      expect(consonant.preventDefault).toHaveBeenCalled();
+      expect(vowel.preventDefault).toHaveBeenCalled();
+      completeDictionary();
+      await Promise.all([pending, ...tasks]);
+      expect(mockInput.value).toBe("か");
+    });
+
+    it("辞書待機中に移動した別の入力欄では無効になった Ctrl+J を引き継がない", async () => {
+      let completeDictionary!: () => void;
+      engine.isInitializedPromise = new Promise<void>((resolve) => { completeDictionary = resolve; });
+      const pending = engine.enqueueKeyAction(async () => {});
+      const event = (value: string, ctrlKey = false) => ({
+        isTrusted: true, isComposing: false, keyCode: value.toLowerCase().charCodeAt(0),
+        key: value, code: `Key${value.toUpperCase()}`, ctrlKey, altKey: false, shiftKey: false,
+        preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+      } as any);
+      const toggle = engine.handleKeyDown(event("j", true));
+      const nextInput = { ...mockInput, value: "" };
+      engine.invalidateQueuedKeys();
+      (globalThis as any).document.activeElement = nextInput;
+      const letter = event("k");
+      await engine.handleKeyDown(letter);
+      expect(letter.preventDefault).not.toHaveBeenCalled();
+
+      completeDictionary();
+      await Promise.all([pending, toggle]);
+      expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(AsciiMode);
+    });
+
     it("maintains HiraganaMode when idle upon pressing Ctrl+J", async () => {
       engine.adapter.setInputMode(HiraganaMode.getInstance());
       const event = {
@@ -339,7 +508,7 @@ describe("SkkContentEngine verified findings", () => {
       expect(ctrlJSpy).toHaveBeenCalled();
     });
 
-    it("switches from KatakanaMode to HiraganaMode when idle (does NOT switch to AsciiMode)", async () => {
+    it("カタカナ待機中の Ctrl+J はモードを維持する", async () => {
       engine.adapter.setInputMode(KatakanaMode.getInstance());
       const event = {
         isTrusted: true,
@@ -356,7 +525,36 @@ describe("SkkContentEngine verified findings", () => {
       } as any;
 
       await engine.handleKeyDown(event);
-      expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(HiraganaMode);
+      expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(KatakanaMode);
+    });
+
+    it.each([
+      ["待機中", "", ""],
+      ["未完のローマ字", "k", ""],
+      ["見出し語", "Ka", "カ"],
+      ["候補選択中", "Ka ", "蚊"],
+    ])("カタカナの%sで Ctrl+J を押した後もカタカナを入力する", async (_state, input, committed) => {
+      mockInput.setSelectionRange.mockImplementation((start: number, end: number) => {
+        mockInput.selectionStart = start;
+        mockInput.selectionEnd = end;
+      });
+      engine.adapter.setInputMode(KatakanaMode.getInstance(engine.adapter));
+      vi.spyOn(engine.adapter.getJisyoProvider(), "lookupCandidates")
+        .mockResolvedValue(new Entry("か", [new Candidate("蚊")], ""));
+      const key = (value: string, ctrlKey = false) => ({
+        isTrusted: true, isComposing: false, keyCode: value.charCodeAt(0),
+        key: value, code: `Key${value.toUpperCase()}`, ctrlKey, altKey: false, shiftKey: false,
+        preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+      } as any);
+      for (const char of input) await engine.handleKeyDown(key(char));
+      await engine.handleKeyDown(key("j", true));
+      expect(engine.adapter.getCurrentInputMode()).toBeInstanceOf(KatakanaMode);
+      expect(engine.adapter.isInMidashigo()).toBe(false);
+      expect(engine.adapter.getCurrentCandidate()).toBeUndefined();
+      expect(engine.adapter.getRemainingRomaji()).toBe("");
+      expect(mockInput.value).toBe(committed);
+      await engine.handleKeyDown(key("a"));
+      expect(mockInput.value).toBe(`${committed}ア`);
     });
 
     it("calls ctrlJInput() in KatakanaMode when composition is active", async () => {

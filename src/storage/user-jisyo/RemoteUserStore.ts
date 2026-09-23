@@ -214,18 +214,14 @@ export class RemoteUserStore implements IUserJisyoStorage {
             return this.fallbackStore.deleteCandidate(key, candidate);
         }
 
-        try {
-            const success = await this.callRpc<boolean>({
-                type: "SKK_USER_DELETE",
-                key,
-                candidate: copyCandidate(candidate),
-                senderId: this.senderId,
-            });
-            return Boolean(success);
-        } catch (err) {
-            console.error(`[RemoteUserStore] Failed to delete candidate for "${key}":`, err);
-            return false;
-        }
+        // 対象なしと通信・保存の失敗を区別し、失敗時は呼び出し側で再試行できます。
+        const success = await this.callRpc<boolean>({
+            type: "SKK_USER_DELETE",
+            key,
+            candidate: copyCandidate(candidate),
+            senderId: this.senderId,
+        });
+        return Boolean(success);
     }
 
     /**

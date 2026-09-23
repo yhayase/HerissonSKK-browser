@@ -1,6 +1,7 @@
 import { CandidateListView, type CandidateListState } from './CandidateListView';
 import { computeOverlayLayout, type OverlayLayout, type OverlayViewport } from './OverlayLayout';
-import type { CandidateListOptions } from '../core/skk/editor/IEditor';
+import type { CandidateListOptions, DeletionConfirmation } from '../core/skk/editor/IEditor';
+import { DeletionConfirmationView } from './DeletionConfirmationView';
 import { OVERLAY_FONT_FAMILY, OVERLAY_THEME_CSS } from './overlayTheme';
 
 export interface HUDState {
@@ -13,6 +14,7 @@ export interface HUDState {
   preedit?: string;
   candidate?: string;
   status?: string;
+  deletionConfirmation?: DeletionConfirmation;
 }
 
 export class FloatingHUD {
@@ -27,6 +29,7 @@ export class FloatingHUD {
   private lastState: HUDState | null = null;
   private candidateListView: CandidateListView | null = null;
   private previousLayout?: OverlayLayout;
+  private deletionView: DeletionConfirmationView | null = null;
 
   constructor() {
     this.init();
@@ -42,6 +45,7 @@ export class FloatingHUD {
 
     this.host = document.createElement('div');
     this.host.id = 'skk-browser-ext-hud-root';
+    this.host.lang = 'ja';
     this.host.style.position = 'absolute';
     this.host.style.top = '0';
     this.host.style.left = '0';
@@ -146,6 +150,8 @@ export class FloatingHUD {
     header.appendChild(this.candidateEl);
     header.appendChild(this.statusEl);
     this.container.appendChild(header);
+    this.deletionView = new DeletionConfirmationView();
+    this.container.appendChild(this.deletionView.element);
 
     this.shadow.appendChild(style);
     this.shadow.appendChild(this.container);
@@ -206,6 +212,7 @@ export class FloatingHUD {
     this.preeditEl!.textContent = state.preedit || '';
     this.candidateEl!.textContent = state.candidate ? `▼${state.candidate}` : '';
     this.statusEl!.textContent = state.status || '';
+    this.deletionView?.update(state.deletionConfirmation);
 
     const viewport = getOverlayViewport();
     const initial = computeOverlayLayout({

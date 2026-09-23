@@ -32,6 +32,15 @@ export interface CandidateListOptions {
     onSpecialKey: (key: string) => boolean;
 }
 
+/** 候補削除中だけ表示する情報。通常の注釈やステータスから独立させます。 */
+export interface DeletionConfirmation {
+    reading: string;
+    candidate: string;
+    okuri: string;
+    warning?: string;
+    error?: string;
+}
+
 export interface IEditor {
     // Jisyo provider
     getJisyoProvider(): IJisyoProvider;
@@ -71,6 +80,9 @@ export interface IEditor {
     hideCandidateList(): void;
     fixateCandidate(candStr: string | undefined): PromiseLike<boolean>;
     clearCandidate(): PromiseLike<boolean>;
+    showDeletionConfirmation(confirmation: DeletionConfirmation): void;
+    clearDeletionConfirmation(): void;
+    isDeletionContextActive?(): boolean;
 
     // UI feedback
     showRemainingRomaji(remainingRomaji: string, isOkuri: boolean, offset: number): void;

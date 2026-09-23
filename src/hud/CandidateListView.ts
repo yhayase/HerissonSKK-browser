@@ -1,4 +1,4 @@
-import { OVERLAY_THEME_CSS } from "./overlayTheme";
+import { OVERLAY_FONT_FAMILY, OVERLAY_THEME_CSS } from "./overlayTheme";
 
 export interface CandidateRow {
     key: string;
@@ -28,6 +28,7 @@ export class CandidateListView {
     constructor(document: Document = globalThis.document) {
         this.element = document.createElement("div");
         this.element.className = "skk-candidate-list";
+        this.element.lang = "ja";
         this.element.setAttribute("role", "listbox");
 
         const style = document.createElement("style");
@@ -39,7 +40,7 @@ export class CandidateListView {
             max-width: 100%;
             color: var(--skk-overlay-text);
             background: var(--skk-overlay-surface);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-family: ${OVERLAY_FONT_FAMILY};
             font-size: 18px;
             line-height: 1.4;
             overflow: hidden;

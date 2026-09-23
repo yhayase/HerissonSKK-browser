@@ -331,22 +331,20 @@ export class CompositeJisyoProvider implements IJisyoProvider {
     public async deleteCandidate(key: string, candidate: Candidate): Promise<boolean> {
         await this.ensureLoaded();
 
-        // Remove from in-memory cache
+        // 永続化に失敗した場合は、再試行できるようキャッシュを維持します。
+        const success = await this.userStorage.deleteCandidate(key, candidate);
+
+        // 対象が既に存在しない場合も、古いキャッシュから取り除きます。
         const list = this.userDictionary.get(key);
-        let found = false;
         if (list) {
             const idx = list.findIndex((c) => candidateIdentity(c) === candidateIdentity(candidate));
             if (idx !== -1) {
                 list.splice(idx, 1);
-                found = true;
             }
             if (list.length === 0) {
                 this.userDictionary.delete(key);
             }
         }
-
-        // Persist deletion
-        const success = await this.userStorage.deleteCandidate(key, candidate);
 
         if (success) {
             const mutationId = this.generateMutationId();
@@ -363,7 +361,7 @@ export class CompositeJisyoProvider implements IJisyoProvider {
             });
         }
 
-        return found || success;
+        return success;
     }
 
     /**

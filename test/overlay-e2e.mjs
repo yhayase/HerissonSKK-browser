@@ -82,7 +82,7 @@ async function launch() {
     browser = await puppeteer.launch({
       browser: "firefox", executablePath: process.env.FIREFOX_PATH ?? "/snap/firefox/current/usr/lib/firefox/firefox",
       headless: true, userDataDir: profile, args: ["--remote-allow-system-access"],
-      extraPrefsFirefox: { "extensions.webextensions.uuids": JSON.stringify({ "skk-browser-extension@yhayase": extensionUuid }) },
+      extraPrefsFirefox: { "extensions.webextensions.uuids": JSON.stringify({ "herissonskk@yhayase": extensionUuid }) },
     });
     await browser.installExtension(extensionPath);
   }

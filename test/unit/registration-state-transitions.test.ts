@@ -103,6 +103,8 @@ describe("SKK Registration & State Transitions Specification (docs/specs/registr
 
     // -------------------------------------------------------------------------
     it.each([
+        ["TasSi", "たっs", "達", "し", false],
+        ["TasSi", "たっs", "達", "し", true],
         ["TsukaTte", "つかt", "使", "って", false],
         ["KaSu", "かs", "貸", "す", false],
         ["TsukaTte", "つかt", "使", "って", true],
